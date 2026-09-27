@@ -114,3 +114,17 @@ This is safe for three reasons:
   credential's key.
 - **biscuit-python 0.4.0's type stubs lag its runtime** (`Algorithm.Ed25519`,
   `from_bytes(data, alg)`). Targeted `type: ignore`s explain this.
+
+## Implementation notes (receipt option C)
+
+- Reasons are structured: `rule`, `summary` (with no values) and `attributes`. Coarse
+  attributes are kept in the clear from an explicit allowlist, and all other values are
+  committed. Details, and where salts live, are in `docs/architecture.md`, under "Receipt
+  exposure".
+- Commitments use the SD-JWT disclosure digest (RFC 9901) over RFC 8785 JSON, with a random
+  128-bit salt per value, stored in a separate 0600 salt store. In Docker the salt store is
+  its own volume, mounted only into the gateway.
+- `agentguard receipts prove` and `agentguard receipts forget` are the audit helpers.
+  Forgetting a salt leaves the receipt log byte-identical.
+- Verified on real attack 1 and attack 2 runs: no full recipient or exact path appears in the
+  receipt log (`tests/test_receipts.py`).

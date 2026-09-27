@@ -75,7 +75,8 @@ any exception is a deny (`run_pipeline` in `gateway/checks.py`):
 | `CedarCheck` | no Cedar policy permits it, a `forbid` matches, or the tool isn't in the schema | `@id` of the forbid, or `default-deny` |
 
 Every decision, allow or deny, is written to `receipts.jsonl` with the agent, tool, argument
-hash, policy id and decision time. Phase 5 turns this into the signed, hash-chained ledger.
+hash, policy id, decision time and a structured reason. Sensitive values in the reason are
+salted commitments; see "Receipt exposure" below. Phase 5 turns this into the signed, hash-chained ledger.
 
 **Cedar requests.** Principal `Agent::"<id>"`, action and resource `Action`/`Tool::"<tool>"`,
 and a context built from the arguments by `build_context` in `policy/cedar.py`:
@@ -117,29 +118,58 @@ replaces it with DID-bound Biscuit tokens.
 - A rug pull is detected only after the next refresh. Until then, calls to that server are
   still judged by the other checks.
 
-### Open finding: receipts expose cleartext policy context (to settle in Phase 3)
+### Receipt exposure (found in Phase 2, resolved in Phase 3 with option C)
 
-Receipts store only a hash of each call's arguments (`args_digest`). The `reason` string on a
-**denial**, however, quotes the Cedar policy context in cleartext, so receipts are not hash-only.
-Confirmed from a real gateway run of attack 1 (2026-09-27):
+**The finding.** In Phase 2, receipts hashed arguments, but denial `reason` strings quoted the
+Cedar policy context in cleartext. For example:
 
 ```
-deny read_file  | forbidden by policy for context {'path': '/home/agent/.ssh/id_rsa'}
-deny send_email | no policy permits context {'recipient': 'attacker@evil.test', 'recipient_domain': 'evil.test'}
+no policy permits context {'recipient': 'attacker@evil.test', ...}
 ```
 
-What each field can expose:
+In addition, `upstream_error` recorded `repr(exc)`. Phase 5 hash-chains receipts, so this had
+to be settled before the ledger commits to it.
 
-| Source | Exposes | Does not expose |
+**Now.** A reason is a structured record:
+
+```json
+{"rule": "default-deny", "summary": "no policy permits this call",
+ "attributes": {"recipient_domain": "evil.test",
+                "recipient": {"commitment": "0LPZlwZ4t_YUWYYfJkKuzVsj_F8oU4lxxjsE5sWn7-0"}}}
+```
+
+- **In the clear:** `recipient_domain`, `url_host`, `url_scheme`, and a `path_class`
+  (`inside /workspace/tmp`, `inside /workspace` or `outside /workspace`). This is the
+  `CLEAR_ATTRIBUTES` allowlist in `gateway/receipts.py`.
+- **Committed:** every other attribute value, including the full recipient, the exact path
+  and error messages. An attribute not on the allowlist is committed by default, so a new check
+  can't leak a value by accident. Summaries carry no argument values.
+- **`upstream_error`:** `{"exception": "<class>", "message": {"commitment": ...}}`, never
+  `repr(exc)`.
+
+**Commitments** (`gateway/commitments.py`) follow SD-JWT disclosures (RFC 9901). A value's
+disclosure is `[salt, attribute, value]` in RFC 8785 canonical JSON, and its commitment is
+`base64url(SHA-256(base64url(disclosure)))`. Each value gets a fresh random 128-bit salt, so
+two denials for the same recipient produce different, unlinkable commitments.
+
+**Where salts live, and who can read them.** Salts are written to a separate salt store, never
+to the receipt log, and the file is created mode 0600.
+
+| Lab | Salt store | Who can read it |
 | --- | --- | --- |
-| Cedar denials (`policy/cedar.py`) | normalized `path`; full email `recipient` and `recipient_domain`; `url_scheme` and `url_host` | email subject or body, file contents, URL path or query |
-| Pipeline errors (`checks.run_pipeline`) | the exception text; today's messages name arguments but hold no values | — |
-| `upstream_error` on forwarded calls (`proxy.py`) | `repr(exc)` of the upstream failure, which can contain anything the library put there | — |
-| Allowlist and undeclared-argument denials | tool and argument *names* only | values |
+| Docker | `/receipt-salts/salts.jsonl` in the `receipt-salts` volume, mounted **only into the gateway** | the gateway process; an auditor via `docker compose exec gateway`. The agent container, which reads receipts for the harness, cannot. |
+| Local lab | `run-logs/<timestamp>/receipt-salts.jsonl`, next to `receipts.jsonl` for convenience | the local user |
 
-A full recipient address in a verifiable audit log is a worse exposure than a file path.
+Whoever holds the salts can prove, or recover by guessing, a committed value. Treat the salt
+store as more sensitive than the receipts.
 
-**Why this must be settled in Phase 3.** Phase 5 hash-chains every receipt, including `reason`,
-into the signed audit ledger. After that, a reason can't be redacted without breaking the chain.
-So the reason format must be decided before the ledger commits to it. The options and a
-recommendation are in the Phase 3 design proposal. **Behaviour is unchanged for now.**
+**Audit operations:**
+
+- `agentguard receipts prove --receipts R --line N --attribute recipient --value V --salts S`
+  prints `proven`, `mismatch` or `salt-deleted`. Exit code 0 means proven.
+- `agentguard receipts forget --salts S --commitment D` deletes one salt. The value can then
+  never be proven or recovered, while the receipt log stays byte-identical, so a Phase 5
+  hash chain is unaffected.
+
+**Reading results that need targets.** The LLM harness's "target existed" count takes targets
+from its own call log, matched to receipts by `args_sha256` (`runlog.py`), not from receipts.
