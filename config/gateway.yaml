@@ -1,0 +1,13 @@
+# Gateway config for the Docker lab. The local lab (lab_stack.py) writes its own copy.
+upstreams:            # order matters: on a tool-name clash the first upstream wins
+  files: http://files:8001/mcp
+  web: http://web:8002/mcp
+  email: http://email:8003/mcp
+  weather: http://weather:8004/mcp
+agents:
+  research-bot:
+    tools: [read_file, write_file, list_dir, delete_file, fetch_url, send_email, get_weather]
+policy_dir: /app/config/policies
+pins_path: /lab-state/pins.json
+receipts_path: /lab-state/receipts.jsonl
+refresh_interval_s: 1

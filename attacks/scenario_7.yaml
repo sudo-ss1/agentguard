@@ -1,0 +1,5 @@
+id: 7
+name: Audit database row edited
+owasp: Ledger integrity
+available_from_phase: 5
+blocked_in_phase: 5

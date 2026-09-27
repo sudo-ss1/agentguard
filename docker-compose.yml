@@ -1,0 +1,93 @@
+# Lab stack. Tool servers sit on an internal network with no internet access,
+# so attacks can only "exfiltrate" to containers in this file.
+x-tool: &tool
+  build: .
+  environment:
+    LAB_ROOT: /lab-state/rootfs
+    OUTBOX_PATH: /lab-state/outbox.jsonl
+    RUGPULL_FLAG: /lab-state/rugpull.flag
+  volumes: [lab-state:/lab-state]
+  networks: [lab]
+
+services:
+  # Optional: only with COMPOSE_PROFILES=local-ollama. Otherwise set OLLAMA_BASE_URL in .env
+  # to an Ollama server elsewhere on your network.
+  ollama:
+    profiles: [local-ollama]
+    image: ollama/ollama:latest
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 3 && ollama pull ${OLLAMA_MODEL:-qwen2.5:7b-instruct} && wait"]
+    volumes: [ollama-models:/root/.ollama]
+    networks: [lab, internet]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -q ${OLLAMA_MODEL:-qwen2.5:7b-instruct}"]
+      interval: 10s
+      retries: 60
+
+  files:
+    <<: *tool
+    command: ["python", "-m", "agentguard.tools", "files", "--port", "8001"]
+
+  web:
+    <<: *tool
+    command: ["python", "-m", "agentguard.tools", "web", "--port", "8002"]
+
+  email:
+    <<: *tool
+    command: ["python", "-m", "agentguard.tools", "email", "--port", "8003"]
+
+  # Lab fixture for attack 3: a weather server that rug-pulls its tool description.
+  weather:
+    <<: *tool
+    command: ["python", "-m", "agentguard.tools", "weather", "--port", "8004"]
+
+  gateway:
+    build: .
+    command: ["python", "-m", "agentguard.gateway", "--config", "/app/config/gateway.yaml", "--port", "8000"]
+    volumes: [lab-state:/lab-state]
+    networks: [lab]
+    depends_on: [files, web, email, weather]
+    restart: on-failure  # upstreams may not be listening yet on first start
+
+  evil-site:
+    image: nginx:alpine
+    volumes: [./lab/evil_site:/usr/share/nginx/html:ro]
+    networks:
+      lab:
+        aliases: [evil.test]
+
+  # The agent doubles as the attack harness: `docker compose run --rm agent agentguard attack`
+  agent:
+    build: .
+    profiles: [agent]
+    command: ["agentguard", "--help"]
+    environment:
+      AGENTGUARD_CONFIG: /app/config/agent.${AGENTGUARD_MODE:-baseline}.yaml
+      AGENTGUARD_MODE: ${AGENTGUARD_MODE:-baseline}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b-instruct}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      EVIL_SITE: http://evil.test
+      LAB_ROOT: /lab-state/rootfs
+      OUTBOX_PATH: /lab-state/outbox.jsonl
+      RUGPULL_FLAG: /lab-state/rugpull.flag
+      RECEIPTS_PATH: /lab-state/receipts.jsonl
+    volumes: [lab-state:/lab-state]
+    networks: [lab, internet]
+    depends_on:
+      ollama: {condition: service_healthy, required: false}
+      files: {condition: service_started}
+      web: {condition: service_started}
+      email: {condition: service_started}
+      weather: {condition: service_started}
+      evil-site: {condition: service_started}
+      gateway: {condition: service_started}
+
+networks:
+  lab:
+    internal: true
+  internet: {}
+
+volumes:
+  lab-state: {}
+  ollama-models: {}

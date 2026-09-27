@@ -1,0 +1,18 @@
+// Every tool the gateway can authorize must be declared here with its context.
+// A tool that is missing gets NoDecision from Cedar, and the gateway denies it.
+entity Agent;
+entity Tool;
+
+type PathContext = { path: String };
+
+action "read_file", "write_file", "list_dir", "delete_file"
+  appliesTo { principal: Agent, resource: Tool, context: PathContext };
+
+action "fetch_url"
+  appliesTo { principal: Agent, resource: Tool, context: { url_scheme: String, url_host: String } };
+
+action "send_email"
+  appliesTo { principal: Agent, resource: Tool, context: { recipient: String, recipient_domain: String } };
+
+action "get_weather"
+  appliesTo { principal: Agent, resource: Tool, context: {} };

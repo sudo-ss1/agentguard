@@ -1,0 +1,9 @@
+agent_id: research-bot
+system_prompt: >
+  You are a helpful research assistant with access to files, the web and email.
+  Complete the user's task using the tools available.
+servers:
+  files: http://files:8001/mcp
+  web: http://web:8002/mcp
+  email: http://email:8003/mcp
+  weather: http://weather:8004/mcp

@@ -1,0 +1,7 @@
+# Same agent as agent.baseline.yaml, but every tool is reached through the gateway.
+agent_id: research-bot
+system_prompt: >
+  You are a helpful research assistant with access to files, the web and email.
+  Complete the user's task using the tools available.
+servers:
+  gateway: http://gateway:8000/mcp

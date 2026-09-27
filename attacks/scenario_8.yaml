@@ -1,0 +1,5 @@
+id: 8
+name: API key committed in a repo
+owasp: Discovery / risk
+available_from_phase: 6
+blocked_in_phase: 6
