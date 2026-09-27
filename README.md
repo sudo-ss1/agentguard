@@ -28,8 +28,14 @@ docker compose run --rm agent agentguard run --task "Summarize http://evil.test/
 `LLM_PROVIDER=anthropic` (with `uv sync --extra anthropic` and `ANTHROPIC_API_KEY`) swaps in
 Claude.
 
-**Resetting the lab.** Gateway pins and quarantines persist in the `lab-state` volume, so
-`docker compose down -v` is a clean start.
+**Identity in Docker.** `make up` starts the identity service and a one-shot `provision`
+container that registers the lab agents. Agent keys and credentials go to the agent container
+only. The gateway gets just the public trust material, and it shares no network with the
+identity service. Root tokens last an hour; run `docker compose run --rm provision` to refresh
+them.
+
+**Resetting the lab.** Gateway pins and quarantines, and the identity service's keys, persist
+in Docker volumes, so `docker compose down -v` is a clean start.
 
 ## Attack results
 

@@ -1,5 +1,12 @@
 # Lab stack. Tool servers sit on an internal network with no internet access,
 # so attacks can only "exfiltrate" to containers in this file.
+#
+# Identity (Phase 3): `identity` holds the issuer and Biscuit root private keys and sits on its
+# own internal network. `provision` registers the lab agents with it once, writing agent keys
+# and credentials to `agent-creds` (agent container only) and the public trust material to
+# `gateway-trust` (gateway, read-only). The gateway is not on the identity network, so it
+# verifies everything offline. Root tokens last an hour: `docker compose run --rm provision`
+# refreshes them.
 x-tool: &tool
   build: .
   environment:
@@ -40,12 +47,32 @@ services:
     <<: *tool
     command: ["python", "-m", "agentguard.tools", "weather", "--port", "8004"]
 
+  identity:
+    build: .
+    command: ["python", "-m", "agentguard.identity", "--config", "/app/config/identity.yaml",
+              "--state-dir", "/identity-state", "--port", "8100"]
+    volumes: [identity-state:/identity-state]
+    networks: [identity]
+
+  provision:
+    build: .
+    command: ["agentguard", "provision", "--identity-url", "http://identity:8100",
+              "--creds-dir", "/agent-creds", "--trust-file", "/gateway-trust/identity.json"]
+    volumes: [agent-creds:/agent-creds, gateway-trust:/gateway-trust]
+    networks: [identity]
+    depends_on: [identity]
+
   gateway:
     build: .
     command: ["python", "-m", "agentguard.gateway", "--config", "/app/config/gateway.yaml", "--port", "8000"]
-    volumes: [lab-state:/lab-state]
+    volumes: [lab-state:/lab-state, gateway-trust:/gateway-trust:ro]
     networks: [lab]
-    depends_on: [files, web, email, weather]
+    depends_on:
+      files: {condition: service_started}
+      web: {condition: service_started}
+      email: {condition: service_started}
+      weather: {condition: service_started}
+      provision: {condition: service_completed_successfully}
     restart: on-failure  # upstreams may not be listening yet on first start
 
   evil-site:
@@ -72,7 +99,8 @@ services:
       OUTBOX_PATH: /lab-state/outbox.jsonl
       RUGPULL_FLAG: /lab-state/rugpull.flag
       RECEIPTS_PATH: /lab-state/receipts.jsonl
-    volumes: [lab-state:/lab-state]
+      CREDENTIALS_DIR: /agent-creds
+    volumes: [lab-state:/lab-state, agent-creds:/agent-creds:ro]
     networks: [lab, internet]
     depends_on:
       ollama: {condition: service_healthy, required: false}
@@ -86,8 +114,13 @@ services:
 networks:
   lab:
     internal: true
+  identity:
+    internal: true
   internet: {}
 
 volumes:
   lab-state: {}
   ollama-models: {}
+  identity-state: {}
+  agent-creds: {}
+  gateway-trust: {}

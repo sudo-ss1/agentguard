@@ -11,3 +11,5 @@ policy_dir: /app/config/policies
 pins_path: /lab-state/pins.json
 receipts_path: /lab-state/receipts.jsonl
 refresh_interval_s: 1
+# Public trust material (issuer DID, Biscuit root public key), written by `agentguard provision`.
+identity_file: /gateway-trust/identity.json

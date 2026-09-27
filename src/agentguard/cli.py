@@ -1,6 +1,7 @@
 """`agentguard` CLI: run the agent, and run attack scenarios against the lab."""
 
 import asyncio
+import json
 import signal
 import sys
 from collections.abc import Iterator
@@ -13,6 +14,8 @@ import yaml
 
 from agentguard.attacks import Scenario, load_all, run_llm, run_scripted
 from agentguard.config import load_config
+from agentguard.identity.client import load_credentials, wait_for
+from agentguard.identity.provision import provision as run_provision
 from agentguard.lab_stack import Lab, local_lab
 from agentguard.runlog import RunLog, TrialRecord, new_run_dir, summarize_attempts
 from agentguard.settings import get_settings
@@ -39,7 +42,7 @@ def open_lab(local: bool, log_dir: Path | None = None) -> Iterator[Lab]:
             yield lab
         return
     guarded = s.agentguard_mode == "guarded"
-    yield Lab(
+    lab = Lab(
         cfg.servers,
         s.evil_site,
         s.lab_root,
@@ -49,6 +52,32 @@ def open_lab(local: bool, log_dir: Path | None = None) -> Iterator[Lab]:
         cfg.agent_id,
         s.rug_pull_settle_s if guarded else 0.0,
     )
+    if guarded:  # credentials written by `agentguard provision`
+        lab.credentials = load_credentials(s.credentials_dir)
+        if lab.agent_id not in lab.credentials:
+            raise typer.BadParameter(
+                f"no credentials for {lab.agent_id!r} in {s.credentials_dir}; "
+                "run `agentguard provision` first"
+            )
+    yield lab
+
+
+@app.command()
+def provision(
+    identity_url: Annotated[str, typer.Option(help="The identity service.")],
+    creds_dir: Annotated[Path, typer.Option(help="Where agent keys and credentials go.")],
+    trust_file: Annotated[Path, typer.Option(help="Where the gateway's public trust goes.")],
+) -> None:
+    """Register the lab's agents and write the gateway's trust file. Safe to re-run: keys are
+    reused and tokens refreshed (root tokens last an hour)."""
+    wait_for(identity_url)
+    credentials, trust = run_provision(identity_url, creds_dir)
+    trust_file.parent.mkdir(parents=True, exist_ok=True)
+    trust_file.write_text(json.dumps(trust, indent=2) + "\n")
+    for name, c in credentials.items():
+        status = "registered" if c.vc else "key only (unregistered)"
+        typer.echo(f"{name:13} {c.key.did[:32]}...  {status}")
+    typer.echo(f"trust: {trust_file}")
 
 
 @app.command()

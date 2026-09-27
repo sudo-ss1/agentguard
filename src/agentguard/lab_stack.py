@@ -17,14 +17,12 @@ import yaml
 
 from agentguard import labfs
 from agentguard.agent.scripted import Acting
-from agentguard.identity.client import Credentials, issuer_info, register
-from agentguard.identity.didkey import AgentKey
+from agentguard.identity.client import Credentials
+from agentguard.identity.provision import provision
 
 REPO_ROOT = labfs.SEED_ROOT.parents[1]
 EVIL_SITE_DIR = REPO_ROOT / "lab" / "evil_site"
 TOOL_SERVERS = ("files", "web", "email", "weather")
-REGISTERED_AGENTS = ("research-bot", "sub-agent")  # registered with the identity service
-UNREGISTERED_AGENTS = ("intruder",)  # has a key, but no credential
 LOCAL_REFRESH_S = 0.2
 
 
@@ -112,20 +110,13 @@ def _provision_identities(
     service = procs[-1]
     url = f"http://127.0.0.1:{port}"
     try:
-        for name in (*REGISTERED_AGENTS, *UNREGISTERED_AGENTS):
-            key = AgentKey.generate()
-            key.save(tmp / "keys" / f"{name}.key")
-            lab.credentials[name] = (
-                register(url, key, name)
-                if name in REGISTERED_AGENTS
-                else Credentials(name, key, None, None)
-            )
-        info = issuer_info(url)
+        credentials, trust = provision(url, tmp / "keys")
     finally:
         service.terminate()
         service.wait(timeout=10)
         procs.remove(service)
-    return {"issuer_did": info.did, "biscuit_root_key": info.biscuit_root_key}
+    lab.credentials.update(credentials)
+    return trust
 
 
 @contextmanager

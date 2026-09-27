@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import yaml
@@ -27,4 +28,10 @@ class GatewayConfig(BaseModel):
 
 
 def load_gateway_config(path: Path) -> GatewayConfig:
-    return GatewayConfig.model_validate(yaml.safe_load(path.read_text()))
+    """`identity` may be given inline, or as `identity_file`: a JSON file of public trust
+    material written at provisioning time (the Docker lab does this)."""
+    data = yaml.safe_load(path.read_text())
+    identity_file = data.pop("identity_file", None)
+    if identity_file and "identity" not in data:
+        data["identity"] = json.loads(Path(identity_file).read_text())
+    return GatewayConfig.model_validate(data)
