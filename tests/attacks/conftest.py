@@ -8,6 +8,8 @@ landed (blocked_in_phase <= CURRENT_PHASE) must be blocked; later ones are still
 xfail, so a phase can't claim a block it doesn't deliver.
 """
 
+import json
+
 import pytest
 
 from agentguard import CURRENT_PHASE
@@ -45,3 +47,22 @@ def pytest_collection_modifyitems(items):
                     strict=True, reason=f"blocked from phase {scenario.blocked_in_phase}"
                 )
             )
+
+
+@pytest.fixture
+def gateway_denials(lab):
+    """Policy ids of the gateway denials recorded during the test (guarded mode only).
+
+    Attack tests use it to check the block came from the intended layer at the gateway, not
+    from the client quietly refusing a call it was never shown.
+    """
+    path = lab.receipts_path
+    start = len(path.read_text().splitlines()) if path and path.exists() else 0
+
+    def denials() -> list[str]:
+        if path is None or not path.exists():
+            return []
+        lines = path.read_text().splitlines()[start:]
+        return [r["policy_id"] for r in map(json.loads, lines) if r["decision"] != "allow"]
+
+    return denials

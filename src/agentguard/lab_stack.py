@@ -8,18 +8,23 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
 from agentguard import labfs
+from agentguard.agent.scripted import Acting
+from agentguard.identity.client import Credentials, issuer_info, register
+from agentguard.identity.didkey import AgentKey
 
 REPO_ROOT = labfs.SEED_ROOT.parents[1]
 EVIL_SITE_DIR = REPO_ROOT / "lab" / "evil_site"
 TOOL_SERVERS = ("files", "web", "email", "weather")
+REGISTERED_AGENTS = ("research-bot", "sub-agent")  # registered with the identity service
+UNREGISTERED_AGENTS = ("intruder",)  # has a key, but no credential
 LOCAL_REFRESH_S = 0.2
 
 
@@ -34,6 +39,28 @@ class Lab:
     agent_id: str = "research-bot"
     # Behind the gateway, give its refresh loop time to notice the rug pull.
     settle_s: float = 0.0
+    # Guarded labs: every lab agent's credentials. Empty in baseline (no identity layer).
+    credentials: dict[str, Credentials] = field(default_factory=dict)
+
+    def identity_for(self, acting: Acting | None = None) -> str | Credentials:
+        """What a toolbox presents for `acting` (the lab agent by default).
+
+        Signing key: always the acting agent's own. Credential: the VC of whoever it claims to
+        be. Token: the root token of whoever's token it uses. Without an identity layer, it is
+        just the name the request asserts.
+        """
+        acting = acting or Acting(agent=self.agent_id)
+        if not self.credentials:
+            return acting.presented_agent_id
+        own = self.credentials[acting.agent]
+        claimed = self.credentials.get(acting.claims or acting.agent)
+        token_of = self.credentials.get(acting.token or acting.agent)
+        return Credentials(
+            acting.agent,
+            own.key,
+            claimed.vc if claimed else None,
+            token_of.token if token_of else None,
+        )
 
     def reset(self) -> None:
         labfs.reset(self.lab_root)
@@ -61,6 +88,44 @@ def _wait_for_port(port: int, proc: subprocess.Popen, timeout: float = 20) -> No
                 return
         time.sleep(0.1)
     raise TimeoutError(f"port {port} did not open: {proc.args!r}")
+
+
+def _provision_identities(
+    lab: Lab, start: Callable[[list[str]], int], tmp: Path, procs: list[subprocess.Popen]
+) -> dict[str, str]:
+    """Run the identity service just long enough to register the lab's agents, then stop it.
+    The gateway starts afterwards with only the public trust material, so every guarded run
+    also shows the gateway works with the identity service down."""
+    port = start(
+        [
+            "-m",
+            "agentguard.identity",
+            "--config",
+            str(REPO_ROOT / "config" / "identity.yaml"),
+            "--state-dir",
+            str(tmp / "identity"),
+            "--host",
+            "127.0.0.1",
+            "--port",
+        ]
+    )
+    service = procs[-1]
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for name in (*REGISTERED_AGENTS, *UNREGISTERED_AGENTS):
+            key = AgentKey.generate()
+            key.save(tmp / "keys" / f"{name}.key")
+            lab.credentials[name] = (
+                register(url, key, name)
+                if name in REGISTERED_AGENTS
+                else Credentials(name, key, None, None)
+            )
+        info = issuer_info(url)
+    finally:
+        service.terminate()
+        service.wait(timeout=10)
+        procs.remove(service)
+    return {"issuer_did": info.did, "biscuit_root_key": info.biscuit_root_key}
 
 
 @contextmanager
@@ -106,6 +171,7 @@ def local_lab(guarded: bool = False, log_dir: Path | None = None) -> Iterator[La
             }
             lab.servers = tools
             if guarded:
+                identity = _provision_identities(lab, start, tmp, procs)
                 lab.receipts_path = logs / "receipts.jsonl"
                 config = tmp / "gateway.yaml"
                 gateway = yaml.safe_load((REPO_ROOT / "config" / "gateway.yaml").read_text())
@@ -115,6 +181,7 @@ def local_lab(guarded: bool = False, log_dir: Path | None = None) -> Iterator[La
                     pins_path=str(logs / "pins.json"),
                     receipts_path=str(lab.receipts_path),
                     refresh_interval_s=LOCAL_REFRESH_S,
+                    identity=identity,
                 )
                 lab.settle_s = LOCAL_REFRESH_S * 3
                 config.write_text(yaml.safe_dump(gateway))

@@ -13,7 +13,7 @@ from agentguard.gateway.proxy import Gateway
 
 async def main(config: Path, host: str, port: int) -> None:
     async with Gateway(load_gateway_config(config)) as gateway:
-        app = gateway.server().streamable_http_app(host=host)
+        app = gateway.app(host)
         await uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="warning")).serve()
 
 

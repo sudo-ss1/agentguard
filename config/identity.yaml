@@ -1,0 +1,16 @@
+# Agents the identity service will register, and what their credentials allow. An agent
+# proves it holds its did:key when registering; its tools come from here, never from the
+# request. The first DID registered for a name keeps it.
+issuer_name: agentguard-identity
+vc_valid_for_s: 86400
+agents:
+  research-bot:
+    sponsor: lab-owner
+    purpose: Research assistant that works inside /workspace
+    tools: [read_file, write_file, list_dir, delete_file, fetch_url, send_email, get_weather]
+    model: qwen2.5:7b-instruct
+  sub-agent:
+    sponsor: research-bot
+    purpose: Fetches web pages for research-bot
+    tools: [fetch_url]
+    model: qwen2.5:7b-instruct

@@ -105,13 +105,13 @@ async def run_steps(lab: Lab, steps: list[Step]) -> CallLog:
     """Replay scripted steps; `as` steps get their own toolbox (and identity). Returns every
     call made, under any identity."""
     async with AsyncExitStack() as stack:
-        default = await stack.enter_async_context(Toolbox(lab.servers, lab.agent_id))
+        default = await stack.enter_async_context(Toolbox(lab.servers, lab.identity_for()))
         boxes: dict[Acting, Toolbox] = {}
 
         async def toolbox_for(acting: Acting) -> Toolbox:
             if acting not in boxes:
                 boxes[acting] = await stack.enter_async_context(
-                    Toolbox(lab.servers, acting.presented_agent_id)
+                    Toolbox(lab.servers, lab.identity_for(acting))
                 )
             return boxes[acting]
 
@@ -130,7 +130,7 @@ async def run_llm(scenario: Scenario, lab: Lab, model, system_prompt: str) -> Ou
 
     assert scenario.oracle and scenario.task, f"scenario {scenario.id} has no LLM task"
     lab.reset()
-    async with Toolbox(lab.servers, lab.agent_id) as toolbox:
+    async with Toolbox(lab.servers, lab.identity_for()) as toolbox:
         error = None
         try:
             await run_task(

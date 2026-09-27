@@ -24,7 +24,7 @@ CALLS = {
 async def measure(lab: Lab, n: int) -> dict[str, dict[str, float]]:
     report = {}
     evil_site = lab.evil_site
-    async with Toolbox(lab.servers, lab.agent_id) as toolbox:
+    async with Toolbox(lab.servers, lab.identity_for()) as toolbox:
         for tool, args in CALLS.items():
             args = {k: v.format(evil_site=evil_site) for k, v in args.items()}
             await toolbox.call(tool, args)  # warm up

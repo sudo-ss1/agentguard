@@ -84,3 +84,33 @@ This is safe for three reasons:
     match the call
   - a positive control
 - **Regression:** attacks 1–3 stay blocked with real identities.
+
+## Implementation notes (identity, DPoP, tokens, gateway verification)
+
+- **Pipeline order:** identity → capability token → pins → allowlist → declared arguments →
+  Cedar. The token check runs before the gateway's local allowlist so each attack's receipt
+  names the layer that answers it (attack 4: `capability-token`, attack 5: `identity`). If
+  the allowlist ran first, the sub-agent in attack 4 would be stopped there instead, since it
+  isn't listed, and the test would not prove the token caveat works.
+- **Verification is middleware:** `IdentityMiddleware` reads each POST body once and verifies
+  the VC, the DPoP proof and the token's signature chain. It never rejects a request itself:
+  handlers deny unverified callers and write a receipt, so forgery attempts are logged.
+- **The toolbox sends unlisted tools to a single server:** a caller isn't limited to the
+  tools it is shown. When the toolbox is connected only to the gateway, a call to a tool the
+  gateway didn't list still goes out, so the gateway records the attempt. Without this,
+  attacks 4 and 5 were "blocked" by the client itself, with no gateway receipt. The attack
+  tests now assert the expected gateway denial, and a mutation check confirmed they fail
+  if that regresses.
+- **The lab stops the identity service before starting the gateway:** every guarded run shows
+  the gateway needs only the pinned issuer DID and Biscuit root public key.
+- **Offline token tests:** tokens come from a real identity-service process, which is then
+  stopped. Authorization runs with socket connections blocked, and a test checks the block is
+  active. The block-stripping test removes the delegation block from the token's protobuf and
+  re-encodes it. The result parses (`UnverifiedBiscuit`, one block fewer) but fails
+  `verify(root)` with "failed verifying the signature". A control shows the re-encoding is
+  byte-identical when nothing is removed.
+- **Standards deviations:** the `mcp` claim in DPoP proofs. The proof carries `jwk` as
+  RFC 9449 requires, and `kid` names the did:key. The verifier requires the `jwk` to equal the
+  credential's key.
+- **biscuit-python 0.4.0's type stubs lag its runtime** (`Algorithm.Ed25519`,
+  `from_bytes(data, alg)`). Targeted `type: ignore`s explain this.

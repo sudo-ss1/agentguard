@@ -8,7 +8,9 @@ loop re-fetches upstream tool lists and quarantines any server whose pinned tool
 tools/call runs the check pipeline, writes a receipt, and forwards the call only if every
 check allows it.
 
-Phase 2 identifies the agent by the X-Agent-Id header; Phase 3 replaces it with tokens.
+Identity (Phase 3): `IdentityMiddleware` verifies each request's credential, DPoP proof and
+capability token before the handlers run. The agent name used by the allowlist and Cedar is
+the one in the verified credential. X-Agent-Id is ignored.
 """
 
 import asyncio
@@ -30,17 +32,24 @@ from agentguard.gateway.checks import (
     run_pipeline,
 )
 from agentguard.gateway.config import GatewayConfig
+from agentguard.gateway.identity import (
+    CapabilityTokenCheck,
+    Identity,
+    IdentityCheck,
+    IdentityMiddleware,
+    IdentityVerifier,
+    identity_of,
+)
 from agentguard.gateway.pins import PinStore
 from agentguard.gateway.receipts import ReceiptLog
 from agentguard.policy.cedar import CedarCheck
+from agentguard.tokens.biscuit import load_root_public_key
 
 log = logging.getLogger(__name__)
-AGENT_HEADER = "x-agent-id"
 
 
-def _agent_id(ctx: ServerRequestContext[Any, Any]) -> str | None:
-    request = ctx.request
-    return request.headers.get(AGENT_HEADER) if request is not None else None
+def _identity(ctx: ServerRequestContext[Any, Any]) -> Identity:
+    return identity_of(ctx.request)
 
 
 def _error(text: str) -> types.CallToolResult:
@@ -50,9 +59,14 @@ def _error(text: str) -> types.CallToolResult:
 class Gateway:
     def __init__(self, config: GatewayConfig) -> None:
         self.config = config
+        root = load_root_public_key(config.identity.biscuit_root_key)
+        self.verifier = IdentityVerifier({config.identity.issuer_did}, root)
         self.pins = PinStore(config.pins_path)
         self.allowlist = AllowlistCheck({a: set(p.tools) for a, p in config.agents.items()})
+        # Who is calling, then what their token lets them do, then local policy.
         self.checks: list[Check] = [
+            IdentityCheck(),
+            CapabilityTokenCheck(root),
             self.pins,
             self.allowlist,
             ArgumentSchemaCheck(),
@@ -110,15 +124,24 @@ class Gateway:
             "agentguard-gateway", on_list_tools=self.on_list_tools, on_call_tool=self.on_call_tool
         )
 
+    def app(self, host: str) -> Any:
+        """The HTTP app: the MCP server behind identity verification."""
+        return IdentityMiddleware(self.server().streamable_http_app(host=host), self.verifier)
+
     async def on_list_tools(
         self, ctx: ServerRequestContext[Any, Any], params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        agent = _agent_id(ctx)
+        identity = _identity(ctx)
+        if identity.profile is None:
+            return types.ListToolsResult(tools=[])
+        agent, credential_tools = identity.profile.name, set(identity.profile.allowed_tools)
         return types.ListToolsResult(
             tools=[
                 tool
                 for server, tool in self.routes.values()
-                if server not in self.pins.quarantined and self.allowlist.permits(agent, tool.name)
+                if server not in self.pins.quarantined
+                and self.allowlist.permits(agent, tool.name)
+                and tool.name in credential_tools
             ]
         )
 
@@ -127,12 +150,14 @@ class Gateway:
     ) -> types.CallToolResult:
         start = time.perf_counter()
         server, tool = self.routes.get(params.name, (None, None))
+        identity = _identity(ctx)
         call = CallContext(
-            _agent_id(ctx),
+            identity.profile.name if identity.profile else None,
             params.name,
             server,
             dict(params.arguments or {}),
             tool.input_schema if tool else {},
+            identity,
         )
         if server is None:
             decision = Decision("deny", f"unknown tool {params.name!r}", "unknown-tool")

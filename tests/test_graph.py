@@ -17,7 +17,7 @@ async def test_agent_calls_mcp_tools_and_surfaces_errors():
         ]
     )
     with local_lab() as lab:
-        async with Toolbox(lab.servers, lab.agent_id) as toolbox:
+        async with Toolbox(lab.servers, lab.identity_for()) as toolbox:
             messages = await run_task(model, toolbox, "system", "read my notes")
 
     tool_messages = [m for m in messages if isinstance(m, ToolMessage)]

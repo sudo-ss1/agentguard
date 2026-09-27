@@ -77,7 +77,7 @@ def run(
             ]
             call_log = await run_steps(lab, steps)
         else:
-            async with Toolbox(lab.servers, lab.agent_id) as toolbox:
+            async with Toolbox(lab.servers, lab.identity_for()) as toolbox:
                 cfg = load_config(s.agent_config_path)
                 messages = await run_task(get_chat_model(s), toolbox, cfg.system_prompt, task or "")
                 typer.echo(messages[-1].content)

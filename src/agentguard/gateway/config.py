@@ -8,8 +8,16 @@ class AgentPolicy(BaseModel):
     tools: list[str]
 
 
+class IdentityTrust(BaseModel):
+    """Public material pinned at setup. The gateway never calls the identity service."""
+
+    issuer_did: str
+    biscuit_root_key: str  # hex Ed25519 public key
+
+
 class GatewayConfig(BaseModel):
     upstreams: dict[str, str]
+    identity: IdentityTrust
     agents: dict[str, AgentPolicy]
     policy_dir: Path = Path("config/policies")
     pins_path: Path = Path(".lab-state/pins.json")

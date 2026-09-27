@@ -1,14 +1,27 @@
-"""Gateway routing, filtering and receipts, with fake upstreams (no network)."""
+"""Gateway routing, filtering and receipts, with fake upstreams (no network).
+
+Identity is attached the way `IdentityMiddleware` attaches it, with a real root key and real
+tokens, so the capability-token check runs for real.
+"""
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from mcp import types
 
-from agentguard.gateway.config import AgentPolicy, GatewayConfig
+from agentguard.gateway.config import AgentPolicy, GatewayConfig, IdentityTrust
+from agentguard.gateway.identity import STATE_KEY, Identity
 from agentguard.gateway.proxy import Gateway
+from agentguard.identity.didkey import AgentKey
+from agentguard.identity.vc import AgentProfile
+from agentguard.tokens.biscuit import RootAuthority
+
+ROOT = RootAuthority.generate()
+ISSUER = AgentKey.generate()
+AGENT_TOOLS = ("read_file", "list_dir", "get_weather", "delete_file")
 
 POLICIES = Path(__file__).resolve().parents[1] / "config" / "policies"
 SCHEMA = {"type": "object", "properties": {"path": {"type": "string"}}}
@@ -31,8 +44,24 @@ def tool(name, description="d"):
     return types.Tool(name=name, description=description, input_schema=SCHEMA)
 
 
-def ctx(agent):
-    return SimpleNamespace(request=SimpleNamespace(headers={"x-agent-id": agent} if agent else {}))
+def identity(name, tools=AGENT_TOOLS):
+    """A verified identity with a real root token for `name`."""
+    key = AgentKey.generate()
+    profile = AgentProfile(name, key.did, "lab-owner", "test", tools, "m")
+    token = ROOT.mint(key.did, tools, datetime.now(UTC) + timedelta(hours=1))
+    return Identity(profile, token)
+
+
+RESEARCH_BOT = identity("research-bot")
+
+
+def ctx(who):
+    """`who` is an agent name (verified), an Identity, or None (unverified request)."""
+    if isinstance(who, str):
+        who = RESEARCH_BOT if who == "research-bot" else identity(who)
+    if who is None:
+        who = Identity(None, error="request has no credential")
+    return SimpleNamespace(request=SimpleNamespace(state=SimpleNamespace(**{STATE_KEY: who})))
 
 
 def call(name, **arguments):
@@ -43,6 +72,7 @@ def call(name, **arguments):
 async def gateway(tmp_path):
     config = GatewayConfig(
         upstreams={},
+        identity=IdentityTrust(issuer_did=ISSUER.did, biscuit_root_key=ROOT.public_key_hex()),
         agents={"research-bot": AgentPolicy(tools=["read_file", "list_dir", "get_weather"])},
         policy_dir=POLICIES,
         pins_path=tmp_path / "pins.json",
@@ -64,7 +94,14 @@ def receipts(gw):
 
 async def test_list_shows_only_allowlisted_tools(gateway):
     names = {t.name for t in (await gateway.on_list_tools(ctx("research-bot"), None)).tools}
-    assert names == {"read_file", "list_dir", "get_weather"}  # delete_file not allowlisted
+    # delete_file is in the credential but not on the gateway's allowlist
+    assert names == {"read_file", "list_dir", "get_weather"}
+
+
+async def test_list_is_also_bounded_by_the_credential(gateway):
+    narrow = identity("research-bot", tools=("read_file",))
+    names = {t.name for t in (await gateway.on_list_tools(ctx(narrow), None)).tools}
+    assert names == {"read_file"}
 
 
 async def test_unknown_or_missing_agent_sees_and_calls_nothing(gateway):
@@ -73,6 +110,17 @@ async def test_unknown_or_missing_agent_sees_and_calls_nothing(gateway):
         result = await gateway.on_call_tool(ctx(agent), call("read_file", path="notes.txt"))
         assert result.is_error
     assert gateway.upstreams["files"].calls == []
+    # a verified agent the gateway doesn't know hits the allowlist; an unverified one, identity
+    assert [r["policy_id"] for r in receipts(gateway)] == ["allowlist", "identity"]
+
+
+async def test_token_is_checked_for_the_verified_holder(gateway):
+    """A verified agent presenting someone else's token is refused by the token's holder
+    caveat, before local policy."""
+    borrowed = Identity(identity("research-bot").profile, RESEARCH_BOT.token)
+    result = await gateway.on_call_tool(ctx(borrowed), call("read_file", path="notes.txt"))
+    assert result.is_error and "capability-token" in result.content[0].text
+    assert receipts(gateway)[0]["reason"] == "token caveat failed: holder"
 
 
 async def test_allowed_call_is_forwarded_with_receipt(gateway):

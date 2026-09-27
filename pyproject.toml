@@ -18,6 +18,7 @@ dependencies = [
     "rfc8785>=0.1.4",
     "base58>=2.1",
     "joserfc>=1.0",
+    "fastapi>=0.115",
 ]
 
 [project.optional-dependencies]

@@ -4,7 +4,10 @@ The first non-allow decision ends the call. Any exception is a deny: fail closed
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
+
+if TYPE_CHECKING:
+    from agentguard.gateway.identity import Identity
 
 Verdict = Literal["allow", "deny", "needs_approval"]
 
@@ -22,11 +25,12 @@ class Decision:
 
 @dataclass
 class CallContext:
-    agent_id: str | None
+    agent_id: str | None  # the verified agent name (from its credential), None if unverified
     tool: str
     server: str | None  # upstream that serves the tool, None if unknown
     arguments: dict[str, Any]
     input_schema: dict[str, Any] = field(default_factory=dict)
+    identity: "Identity | None" = None
 
 
 class Check(Protocol):
