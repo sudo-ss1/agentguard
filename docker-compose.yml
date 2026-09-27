@@ -65,7 +65,8 @@ services:
   gateway:
     build: .
     command: ["python", "-m", "agentguard.gateway", "--config", "/app/config/gateway.yaml", "--port", "8000"]
-    volumes: [lab-state:/lab-state, gateway-trust:/gateway-trust:ro]
+    # receipt-salts: only the gateway (and an auditor via `docker compose exec gateway`).
+    volumes: [lab-state:/lab-state, gateway-trust:/gateway-trust:ro, receipt-salts:/receipt-salts]
     networks: [lab]
     depends_on:
       files: {condition: service_started}
@@ -124,3 +125,4 @@ volumes:
   identity-state: {}
   agent-creds: {}
   gateway-trust: {}
+  receipt-salts: {}

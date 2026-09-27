@@ -23,6 +23,9 @@ class GatewayConfig(BaseModel):
     policy_dir: Path = Path("config/policies")
     pins_path: Path = Path(".lab-state/pins.json")
     receipts_path: Path = Path(".lab-state/receipts.jsonl")
+    # Salts for the receipts' commitments. Keep this away from the receipt log: whoever can
+    # read it can prove (or recover) the committed values; deleting an entry erases one.
+    salts_path: Path = Path(".lab-state/receipt-salts.jsonl")
     # How often upstream tool lists are re-fetched and checked against their pins.
     refresh_interval_s: float = 5.0
 

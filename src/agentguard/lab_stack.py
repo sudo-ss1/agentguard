@@ -39,6 +39,7 @@ class Lab:
     settle_s: float = 0.0
     # Guarded labs: every lab agent's credentials. Empty in baseline (no identity layer).
     credentials: dict[str, Credentials] = field(default_factory=dict)
+    salts_path: Path | None = None  # the receipts' commitment salts (guarded labs)
 
     def identity_for(self, acting: Acting | None = None) -> str | Credentials:
         """What a toolbox presents for `acting` (the lab agent by default).
@@ -164,6 +165,7 @@ def local_lab(guarded: bool = False, log_dir: Path | None = None) -> Iterator[La
             if guarded:
                 identity = _provision_identities(lab, start, tmp, procs)
                 lab.receipts_path = logs / "receipts.jsonl"
+                lab.salts_path = logs / "receipt-salts.jsonl"
                 config = tmp / "gateway.yaml"
                 gateway = yaml.safe_load((REPO_ROOT / "config" / "gateway.yaml").read_text())
                 gateway.update(
@@ -171,6 +173,7 @@ def local_lab(guarded: bool = False, log_dir: Path | None = None) -> Iterator[La
                     policy_dir=str(REPO_ROOT / "config" / "policies"),
                     pins_path=str(logs / "pins.json"),
                     receipts_path=str(lab.receipts_path),
+                    salts_path=str(logs / "receipt-salts.jsonl"),
                     refresh_interval_s=LOCAL_REFRESH_S,
                     identity=identity,
                 )

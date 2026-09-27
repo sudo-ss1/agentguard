@@ -21,6 +21,10 @@ from agentguard.runlog import RunLog, TrialRecord, new_run_dir, summarize_attemp
 from agentguard.settings import get_settings
 
 app = typer.Typer(no_args_is_help=True)
+receipts_app = typer.Typer(
+    no_args_is_help=True, help="Prove or erase values committed in receipts."
+)
+app.add_typer(receipts_app, name="receipts")
 
 
 @app.callback()
@@ -207,3 +211,34 @@ def _markdown_table(header: list[str], rows: list[list[str]]) -> str:
     lines = ["| " + " | ".join(header) + " |", "|" + " --- |" * len(header)]
     lines += ["| " + " | ".join(row) + " |" for row in rows]
     return "\n".join(lines)
+
+
+@receipts_app.command("prove")
+def receipts_prove(
+    receipts: Annotated[Path, typer.Option(help="The receipt log (receipts.jsonl).")],
+    line: Annotated[int, typer.Option(help="The receipt's line number (1-based).")],
+    attribute: Annotated[str, typer.Option(help="e.g. recipient, path, upstream_error")],
+    value: Annotated[str, typer.Option(help="The value you claim was committed.")],
+    salts: Annotated[Path, typer.Option(help="The salt store (kept apart from receipts).")],
+) -> None:
+    """Show whether a receipt commits an attribute to a value. Exit code 0 only if proven."""
+    from agentguard.gateway.audit import prove, read_receipt
+    from agentguard.gateway.commitments import SaltStore
+
+    result = prove(read_receipt(receipts, line), attribute, value, SaltStore(salts))
+    typer.echo(f"{result.status}: {result.detail}")
+    raise typer.Exit(0 if result.status == "proven" else 1)
+
+
+@receipts_app.command("forget")
+def receipts_forget(
+    salts: Annotated[Path, typer.Option(help="The salt store.")],
+    commitment: Annotated[str, typer.Option(help="The commitment whose salt to delete.")],
+) -> None:
+    """Delete a salt so the committed value can never be recovered or proven. The receipt
+    itself is not touched."""
+    from agentguard.gateway.commitments import SaltStore
+
+    removed = SaltStore(salts).forget(commitment)
+    typer.echo("salt deleted" if removed else "no salt for that commitment")
+    raise typer.Exit(0 if removed else 1)

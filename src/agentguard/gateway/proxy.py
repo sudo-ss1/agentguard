@@ -31,6 +31,7 @@ from agentguard.gateway.checks import (
     Decision,
     run_pipeline,
 )
+from agentguard.gateway.commitments import SaltStore
 from agentguard.gateway.config import GatewayConfig
 from agentguard.gateway.identity import (
     CapabilityTokenCheck,
@@ -72,7 +73,7 @@ class Gateway:
             ArgumentSchemaCheck(),
             CedarCheck(config.policy_dir),
         ]
-        self.receipts = ReceiptLog(config.receipts_path)
+        self.receipts = ReceiptLog(config.receipts_path, SaltStore(config.salts_path))
         self.upstreams: dict[str, Client] = {}
         self.routes: dict[str, tuple[str, types.Tool]] = {}  # tool name -> (server, tool)
         self._stack = AsyncExitStack()
@@ -160,7 +161,7 @@ class Gateway:
             identity,
         )
         if server is None:
-            decision = Decision("deny", f"unknown tool {params.name!r}", "unknown-tool")
+            decision = Decision("deny", "unknown tool", "unknown-tool")
         else:
             decision = run_pipeline(self.checks, call)
         decided_ms = round((time.perf_counter() - start) * 1000, 3)
@@ -174,7 +175,7 @@ class Gateway:
         try:
             result = await self.upstreams[server].call_tool(params.name, call.arguments)
         except Exception as exc:
-            self.receipts.write(call, decision, decision_ms=decided_ms, upstream_error=repr(exc))
+            self.receipts.write(call, decision, decision_ms=decided_ms, upstream_exception=exc)
             return _error(f"upstream {server} failed: {exc}")
         self.receipts.write(
             call, decision, decision_ms=decided_ms, upstream_error=bool(result.is_error)

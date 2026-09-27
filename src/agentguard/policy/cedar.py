@@ -76,14 +76,17 @@ class CedarCheck:
         matched = [self._id(r) for r in result.diagnostics.reasons]
         if result.allowed:
             return Decision("allow", "permitted", ",".join(matched))
+        context = request["context"]
         if matched:  # a forbid matched
+            return Decision("deny", "forbidden by policy", ",".join(matched), context)
+        if result.diagnostics.errors:  # e.g. the tool isn't in the schema
             return Decision(
-                "deny", f"forbidden by policy for context {request['context']}", ",".join(matched)
+                "deny",
+                "policy evaluation error",
+                "default-deny",
+                {**context, "error_message": "; ".join(result.diagnostics.errors)},
             )
-        errors = "; ".join(result.diagnostics.errors)
-        return Decision(
-            "deny", errors or f"no policy permits context {request['context']}", "default-deny"
-        )
+        return Decision("deny", "no policy permits this call", "default-deny", context)
 
     def _id(self, cedar_name: str) -> str:
         index = int(cedar_name.removeprefix("policy"))

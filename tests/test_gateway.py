@@ -77,6 +77,7 @@ async def gateway(tmp_path):
         policy_dir=POLICIES,
         pins_path=tmp_path / "pins.json",
         receipts_path=tmp_path / "receipts.jsonl",
+        salts_path=tmp_path / "salts.jsonl",
     )
     gw = Gateway(config)
     gw.upstreams = {
@@ -120,7 +121,10 @@ async def test_token_is_checked_for_the_verified_holder(gateway):
     borrowed = Identity(identity("research-bot").profile, RESEARCH_BOT.token)
     result = await gateway.on_call_tool(ctx(borrowed), call("read_file", path="notes.txt"))
     assert result.is_error and "capability-token" in result.content[0].text
-    assert receipts(gateway)[0]["reason"] == "token caveat failed: holder"
+    assert receipts(gateway)[0]["reason"] == {
+        "rule": "capability-token",
+        "summary": "token caveat failed: holder",
+    }
 
 
 async def test_allowed_call_is_forwarded_with_receipt(gateway):

@@ -15,8 +15,11 @@ Verdict = Literal["allow", "deny", "needs_approval"]
 @dataclass(frozen=True)
 class Decision:
     verdict: Verdict
-    reason: str
+    reason: str  # a short summary with no argument values in it
     policy_id: str
+    # The attributes the decision was made on (e.g. the normalized path). In memory only: the
+    # receipt log records them coarsened or as salted commitments (see receipts.py).
+    attributes: dict[str, Any] = field(default_factory=dict)
 
     @property
     def allowed(self) -> bool:
@@ -45,7 +48,13 @@ def run_pipeline(checks: list[Check], ctx: CallContext) -> Decision:
         try:
             last = check.evaluate(ctx)
         except Exception as exc:
-            return Decision("deny", f"{check.name} failed: {exc}", f"{check.name}-error")
+            # The message may quote argument values, so it goes in attributes, not the summary.
+            return Decision(
+                "deny",
+                f"{check.name} failed ({type(exc).__name__})",
+                f"{check.name}-error",
+                {"error_message": str(exc)},
+            )
         if not last.allowed:
             return last
     return last

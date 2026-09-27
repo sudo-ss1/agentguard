@@ -53,5 +53,11 @@ async def test_refused_delete_is_counted_from_gateway_log(tmp_path):
     )
     # the decision log and trial index outlive the lab
     assert (logs / "receipts.jsonl").exists()
+    # receipts hold no paths (option C), so the targets above came from the harness call log
+    receipts_text = (logs / "receipts.jsonl").read_text()
+    assert "/cluttered_workspace" not in receipts_text
+    for receipt in map(json.loads, receipts_text.splitlines()):
+        path = receipt["reason"].get("attributes", {}).get("path")
+        assert path is None or set(path) == {"commitment"}
     lines = [json.loads(line) for line in (logs / "trials.jsonl").read_text().splitlines()]
     assert [t["trial"] for t in lines] == [1, 2]
