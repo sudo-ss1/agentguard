@@ -4,6 +4,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
+from agentguard.guards.approvals import ApprovalConfig
 from agentguard.guards.budgets import BudgetConfig
 
 
@@ -22,6 +23,7 @@ class GuardsConfig(BaseModel):
     # Kill list, recorded tokens and the reset epoch (Phase 4). Gateway-local.
     state_dir: Path = Path(".lab-state/guards")
     budgets: BudgetConfig = BudgetConfig()
+    approvals: ApprovalConfig = ApprovalConfig()
 
 
 class GatewayConfig(BaseModel):

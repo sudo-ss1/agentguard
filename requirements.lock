@@ -45,6 +45,8 @@ distro==1.9.0
     # via langsmith
 fastapi==0.141.1
     # via agentguard (pyproject.toml)
+google-re2==1.1.20251105
+    # via agentguard (pyproject.toml)
 h11==0.16.0
     # via
     #   httpcore

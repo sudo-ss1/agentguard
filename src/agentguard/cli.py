@@ -17,12 +17,20 @@ from agentguard.config import load_config
 from agentguard.identity.client import load_credentials, wait_for
 from agentguard.identity.provision import provision as run_provision
 from agentguard.lab_stack import Lab, local_lab
-from agentguard.runlog import RunLog, TrialRecord, new_run_dir, summarize_attempts
+from agentguard.runlog import (
+    RunLog,
+    TrialRecord,
+    new_run_dir,
+    scripted_verdict,
+    summarize_attempts,
+)
 from agentguard.settings import get_settings
 
 app = typer.Typer(no_args_is_help=True)
 guards_app = typer.Typer(no_args_is_help=True, help="Gateway runtime guards (Phase 4).")
 app.add_typer(guards_app, name="guards")
+approvals_app = typer.Typer(no_args_is_help=True, help="Answer the gateway's approval requests.")
+app.add_typer(approvals_app, name="approvals")
 receipts_app = typer.Typer(
     no_args_is_help=True, help="Prove or erase values committed in receipts."
 )
@@ -155,9 +163,13 @@ def attack(
             model, system_prompt = get_chat_model(s), load_config(s.agent_config_path).system_prompt
         rows = []
         for sc in scenarios:
+            start = runlog.mark() if runlog else 0
             scripted = await run_scripted(sc, lab)
+            classes = runlog.classes_between(start, runlog.mark()) if runlog else None
             typer.echo(f"#{sc.id} scripted: {scripted.detail}", err=True)
-            rows.append([str(sc.id), sc.name, sc.owasp, _verdict(scripted.succeeded)])
+            rows.append(
+                [str(sc.id), sc.name, sc.owasp, scripted_verdict(scripted.succeeded, classes)]
+            )
             if llm:
                 if not sc.task:
                     rows[-1] += ["n/a (scripted only)"] + (["n/a"] if guarded else [])
@@ -165,9 +177,11 @@ def attack(
                 records = await _llm_trials(sc, lab, model, system_prompt or "", trials, runlog)
                 wins = sum(r.attack_succeeded for r in records)
                 errors = sum(1 for r in records if r.agent_error)
-                rows[-1].append(
-                    f"{wins}/{trials}" + (f" ({errors} ended in agent error)" if errors else "")
-                )
+                undecided = sum(1 for r in records if r.approval_undecided)
+                notes = [f"{errors} ended in agent error"] if errors else []
+                if undecided:
+                    notes.append(f"{undecided} hit an approval timeout/error")
+                rows[-1].append(f"{wins}/{trials}" + (f" ({'; '.join(notes)})" if notes else ""))
                 if guarded:
                     rows[-1].append(summarize_attempts(sc, records))
         return rows
@@ -203,10 +217,6 @@ async def _llm_trials(
                 )
             )
     return records
-
-
-def _verdict(attack_succeeded: bool) -> str:
-    return "attack succeeded" if attack_succeeded else "blocked"
 
 
 def _markdown_table(header: list[str], rows: list[list[str]]) -> str:
@@ -290,3 +300,49 @@ def guards_reset(state_dir: StateDirOpt = None) -> None:
     """Revive every agent and clear budgets and taint in the running gateway."""
     _guard_state(state_dir).reset()
     typer.echo("guard state reset")
+
+
+def _approvals_dir(state_dir: Path | None) -> Path:
+    return (state_dir or get_settings().guard_state_dir) / "approvals"
+
+
+@approvals_app.command("list")
+def approvals_list(state_dir: StateDirOpt = None) -> None:
+    """Show pending requests, with the full arguments the approver is deciding on."""
+    from agentguard.guards.approvals import list_pending
+
+    pending = list_pending(_approvals_dir(state_dir))
+    if not pending:
+        typer.echo("no pending approvals")
+    for r in pending:
+        typer.echo(f"{r['id']}  {r['created']}  {r['agent']}  {r['tool']}  ({r['why']})")
+        typer.echo(f"    arguments: {json.dumps(r['arguments'])[:500]}")
+
+
+def _decide(request_id: str, approve: bool, approver: str, state_dir: Path | None) -> None:
+    from agentguard.guards.approvals import decide
+
+    if not decide(_approvals_dir(state_dir), request_id, approve, approver):
+        typer.echo(f"no pending request {request_id} (already answered, timed out or voided)")
+        raise typer.Exit(1)
+    typer.echo(f"{'approved' if approve else 'denied'} {request_id} as {approver}")
+
+
+@approvals_app.command("approve")
+def approvals_approve(
+    request_id: str,
+    approver: Annotated[str, typer.Option(help="Who is approving (recorded in the receipt).")],
+    state_dir: StateDirOpt = None,
+) -> None:
+    """Approve one pending call (exactly that call, once)."""
+    _decide(request_id, True, approver, state_dir)
+
+
+@approvals_app.command("deny")
+def approvals_deny(
+    request_id: str,
+    approver: Annotated[str, typer.Option(help="Who is denying (recorded in the receipt).")],
+    state_dir: StateDirOpt = None,
+) -> None:
+    """Deny one pending call."""
+    _decide(request_id, False, approver, state_dir)

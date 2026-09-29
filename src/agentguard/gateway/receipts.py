@@ -36,6 +36,8 @@ CLEAR_ATTRIBUTES = frozenset(
         "window_s",
         "kill_switch",
         "kill_reason",
+        "rule_id",  # a scanner rule's id, never the matched value
+        "argument",  # which argument a finding was in, e.g. "body"
     }
 )
 
@@ -86,6 +88,7 @@ class ReceiptLog:
         upstream_error: bool | None = None,
         upstream_exception: BaseException | None = None,
         denial_class: str | None = None,
+        approval: dict[str, Any] | None = None,
     ) -> None:
         receipt: dict[str, Any] = {
             "ts": datetime.now(UTC).isoformat(),
@@ -102,6 +105,8 @@ class ReceiptLog:
             # policy | guard | approval-denied | approval-timeout | approval-error.
             # Only policy and guard denials mean the gateway blocked the call on its merits.
             receipt["denial_class"] = denial_class
+        if approval is not None:
+            receipt["approval"] = approval
         if upstream_exception is not None:
             receipt["upstream_error"] = {
                 "exception": type(upstream_exception).__name__,

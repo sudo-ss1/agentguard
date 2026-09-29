@@ -14,7 +14,7 @@ from agentguard.agent.toolbox import Toolbox
 from agentguard.lab_stack import Lab, local_lab
 
 # Measurement only: lift the rate/cost budgets so 200 calls per tool measure latency instead
-# of hitting the budget guard.
+# of hitting the budget guard. (send_email is left out: it needs human approval.)
 BENCH_OVERRIDES = {
     "guards": {
         "budgets": {
@@ -29,7 +29,6 @@ CALLS = {
     "read_file": {"path": "/workspace/notes.txt"},
     "list_dir": {"path": "/workspace"},
     "fetch_url": {"url": "{evil_site}/index.html"},
-    "send_email": {"to": "bench@lab.test", "subject": "bench", "body": "x"},
 }
 
 

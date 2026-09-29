@@ -44,8 +44,10 @@ from agentguard.gateway.identity import (
 from agentguard.gateway.pins import PinStore
 from agentguard.gateway.receipts import ReceiptLog
 from agentguard.guards import Guard, combine, run_guards
+from agentguard.guards.approvals import ApprovalQueue, ApprovalRequirement, TaintTracker
 from agentguard.guards.budgets import BudgetGuard
 from agentguard.guards.killswitch import KillSwitchCheck
+from agentguard.guards.secrets import SecretScanGuard
 from agentguard.guards.state import GuardState
 from agentguard.policy.cedar import CedarCheck
 from agentguard.tokens.biscuit import load_root_public_key
@@ -82,7 +84,17 @@ class Gateway:
         ]
         # Guard stage (Phase 4): runs only after policy allows a call, and can only add a denial
         # or an escalation to human approval (see agentguard.guards).
-        self.pre_guards: list[Guard] = []
+        approvals = config.guards.approvals
+        self.taint = TaintTracker(approvals.taint_ttl_s, self.guard_state)
+        self.approvals = ApprovalQueue(config.guards.state_dir / "approvals", approvals)
+        voided = self.approvals.void_stale()
+        if voided:
+            log.warning("voided %d approval request(s) left by a previous gateway run", voided)
+        # Secrets first: nobody should be asked to approve a call that carries one.
+        self.pre_guards: list[Guard] = [
+            SecretScanGuard(),
+            ApprovalRequirement(approvals, self.taint),
+        ]
         # Budgets run last, after Cedar and approval, as the plan orders.
         self.budget_guards: list[Guard] = [BudgetGuard(config.guards.budgets, self.guard_state)]
         self.receipts = ReceiptLog(config.receipts_path, SaltStore(config.salts_path))
@@ -180,12 +192,36 @@ class Gateway:
         decision = combine(policy, guard_results)
         decided_ms = round((time.perf_counter() - start) * 1000, 3)
 
+        approval: dict[str, Any] | None = None
+        if decision.verdict == "needs_approval":  # only reachable when policy allowed
+            waited = time.perf_counter()
+            answer = await self.approvals.request(call, decision.reason)
+            approval = {
+                "id": answer.request_id,
+                "outcome": answer.outcome,
+                "approver": answer.approver,
+                "escalated_by": decision.policy_id,
+                "wait_ms": round((time.perf_counter() - waited) * 1000, 1),
+            }
+            if answer.outcome == "approved":
+                decision = Decision("allow", f"approved by {answer.approver}", policy.policy_id)
+            else:
+                decision = Decision(
+                    "deny", f"approval {answer.outcome}", f"approval-{answer.outcome}"
+                )
         if decision.allowed:  # budgets last: after Cedar and approval, as the plan orders
             decision = combine(decision, run_guards(self.budget_guards, call))
 
         if not decision.allowed:
-            denial_class = "policy" if not policy.allowed else "guard"
-            self.receipts.write(call, decision, decision_ms=decided_ms, denial_class=denial_class)
+            if not policy.allowed:
+                denial_class = "policy"
+            elif approval is not None and approval["outcome"] != "approved":
+                denial_class = f"approval-{approval['outcome']}"  # never "the gateway blocked it"
+            else:
+                denial_class = "guard"
+            self.receipts.write(
+                call, decision, decision_ms=decided_ms, denial_class=denial_class, approval=approval
+            )
             return _error(
                 f"AgentGuard denied {params.name}: {decision.reason} [policy: {decision.policy_id}]"
             )
@@ -193,12 +229,15 @@ class Gateway:
         try:
             result = await self.upstreams[server].call_tool(params.name, call.arguments)
         except Exception as exc:
-            self.receipts.write(call, decision, decision_ms=decided_ms, upstream_exception=exc)
+            self.receipts.write(
+                call, decision, decision_ms=decided_ms, approval=approval, upstream_exception=exc
+            )
             return _error(f"upstream {server} failed: {exc}")
         self.receipts.write(
             call,
             decision,
             decision_ms=decided_ms,
+            approval=approval,
             upstream_error=bool(result.is_error),
         )
         return types.CallToolResult(
