@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.gateway_helpers import gateway  # noqa: F401  (shared fixture for gateway tests)
+
 REPO = Path(__file__).resolve().parents[1]
 IGNORED_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache"}
 

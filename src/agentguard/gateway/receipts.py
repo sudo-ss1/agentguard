@@ -25,7 +25,19 @@ from agentguard.gateway.checks import CallContext, Decision
 from agentguard.gateway.commitments import SaltStore
 
 # Attribute values that are coarse enough to keep in the clear.
-CLEAR_ATTRIBUTES = frozenset({"recipient_domain", "url_host", "url_scheme", "path_class"})
+CLEAR_ATTRIBUTES = frozenset(
+    {
+        "recipient_domain",
+        "url_host",
+        "url_scheme",
+        "path_class",
+        # guard metadata, not argument values
+        "limit",
+        "window_s",
+        "kill_switch",
+        "kill_reason",
+    }
+)
 
 
 def args_digest(arguments: dict[str, Any]) -> str:
@@ -73,6 +85,7 @@ class ReceiptLog:
         decision_ms: float,
         upstream_error: bool | None = None,
         upstream_exception: BaseException | None = None,
+        denial_class: str | None = None,
     ) -> None:
         receipt: dict[str, Any] = {
             "ts": datetime.now(UTC).isoformat(),
@@ -85,6 +98,10 @@ class ReceiptLog:
             "reason": self.reason(decision),
             "decision_ms": decision_ms,
         }
+        if denial_class is not None:
+            # policy | guard | approval-denied | approval-timeout | approval-error.
+            # Only policy and guard denials mean the gateway blocked the call on its merits.
+            receipt["denial_class"] = denial_class
         if upstream_exception is not None:
             receipt["upstream_error"] = {
                 "exception": type(upstream_exception).__name__,

@@ -65,8 +65,11 @@ services:
   gateway:
     build: .
     command: ["python", "-m", "agentguard.gateway", "--config", "/app/config/gateway.yaml", "--port", "8000"]
+    environment:
+      GUARD_STATE_DIR: /gateway-state/guards
     # receipt-salts: only the gateway (and an auditor via `docker compose exec gateway`).
-    volumes: [lab-state:/lab-state, gateway-trust:/gateway-trust:ro, receipt-salts:/receipt-salts]
+    volumes: [lab-state:/lab-state, gateway-trust:/gateway-trust:ro, receipt-salts:/receipt-salts,
+              gateway-state:/gateway-state]
     networks: [lab]
     depends_on:
       files: {condition: service_started}
@@ -126,3 +129,4 @@ volumes:
   agent-creds: {}
   gateway-trust: {}
   receipt-salts: {}
+  gateway-state: {}  # kill list and guard reset epoch: gateway only

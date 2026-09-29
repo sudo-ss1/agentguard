@@ -13,6 +13,18 @@ from pathlib import Path
 from agentguard.agent.toolbox import Toolbox
 from agentguard.lab_stack import Lab, local_lab
 
+# Measurement only: lift the rate/cost budgets so 200 calls per tool measure latency instead
+# of hitting the budget guard.
+BENCH_OVERRIDES = {
+    "guards": {
+        "budgets": {
+            "calls_per_window": {"default": 1_000_000},
+            "cost_budget": 1_000_000,
+            "trip_after_rate_denials": 1_000_000,
+        }
+    }
+}
+
 CALLS = {
     "read_file": {"path": "/workspace/notes.txt"},
     "list_dir": {"path": "/workspace"},
@@ -46,7 +58,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path)
     parser.add_argument("--compare", type=Path, help="A direct-mode report to diff against.")
     args = parser.parse_args()
-    with local_lab(guarded=args.guarded) as lab:
+    with local_lab(guarded=args.guarded, gateway_overrides=BENCH_OVERRIDES) as lab:
         report = asyncio.run(measure(lab, args.n))
     text = json.dumps({"mode": "gateway" if args.guarded else "direct", "tools": report}, indent=2)
     print(text)

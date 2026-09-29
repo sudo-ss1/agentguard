@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     lab_root: Path = Path(".lab-state/rootfs")
     outbox_path: Path = Path(".lab-state/outbox.jsonl")
     receipts_path: Path = Path(".lab-state/receipts.jsonl")
+    guard_state_dir: Path = Path(".lab-state/guards")  # the gateway's kill list and reset epoch
     credentials_dir: Path = Path(".lab-state/agent-creds")  # Docker lab: from `provision`
     # `agentguard attack` on a local lab keeps each run's gateway decision log (and per-trial
     # index) in <run_log_dir>/<timestamp>/. Tests and the bench use a temporary folder instead.

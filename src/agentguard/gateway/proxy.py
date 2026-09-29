@@ -43,6 +43,10 @@ from agentguard.gateway.identity import (
 )
 from agentguard.gateway.pins import PinStore
 from agentguard.gateway.receipts import ReceiptLog
+from agentguard.guards import Guard, combine, run_guards
+from agentguard.guards.budgets import BudgetGuard
+from agentguard.guards.killswitch import KillSwitchCheck
+from agentguard.guards.state import GuardState
 from agentguard.policy.cedar import CedarCheck
 from agentguard.tokens.biscuit import load_root_public_key
 
@@ -64,15 +68,23 @@ class Gateway:
         self.verifier = IdentityVerifier({config.identity.issuer_did}, root)
         self.pins = PinStore(config.pins_path)
         self.allowlist = AllowlistCheck({a: set(p.tools) for a, p in config.agents.items()})
-        # Who is calling, then what their token lets them do, then local policy.
+        self.guard_state = GuardState(config.guards.state_dir)
+        # Who is calling (and whether they've been stopped), then what their token lets them
+        # do, then local policy.
         self.checks: list[Check] = [
             IdentityCheck(),
+            KillSwitchCheck(self.guard_state, root),
             CapabilityTokenCheck(root),
             self.pins,
             self.allowlist,
             ArgumentSchemaCheck(),
             CedarCheck(config.policy_dir),
         ]
+        # Guard stage (Phase 4): runs only after policy allows a call, and can only add a denial
+        # or an escalation to human approval (see agentguard.guards).
+        self.pre_guards: list[Guard] = []
+        # Budgets run last, after Cedar and approval, as the plan orders.
+        self.budget_guards: list[Guard] = [BudgetGuard(config.guards.budgets, self.guard_state)]
         self.receipts = ReceiptLog(config.receipts_path, SaltStore(config.salts_path))
         self.upstreams: dict[str, Client] = {}
         self.routes: dict[str, tuple[str, types.Tool]] = {}  # tool name -> (server, tool)
@@ -161,13 +173,19 @@ class Gateway:
             identity,
         )
         if server is None:
-            decision = Decision("deny", "unknown tool", "unknown-tool")
+            policy = Decision("deny", "unknown tool", "unknown-tool")
         else:
-            decision = run_pipeline(self.checks, call)
+            policy = run_pipeline(self.checks, call)
+        guard_results = run_guards(self.pre_guards, call) if policy.allowed else []
+        decision = combine(policy, guard_results)
         decided_ms = round((time.perf_counter() - start) * 1000, 3)
 
-        if not decision.allowed:  # needs_approval is denied until Phase 4 adds approvals
-            self.receipts.write(call, decision, decision_ms=decided_ms)
+        if decision.allowed:  # budgets last: after Cedar and approval, as the plan orders
+            decision = combine(decision, run_guards(self.budget_guards, call))
+
+        if not decision.allowed:
+            denial_class = "policy" if not policy.allowed else "guard"
+            self.receipts.write(call, decision, decision_ms=decided_ms, denial_class=denial_class)
             return _error(
                 f"AgentGuard denied {params.name}: {decision.reason} [policy: {decision.policy_id}]"
             )
@@ -178,7 +196,10 @@ class Gateway:
             self.receipts.write(call, decision, decision_ms=decided_ms, upstream_exception=exc)
             return _error(f"upstream {server} failed: {exc}")
         self.receipts.write(
-            call, decision, decision_ms=decided_ms, upstream_error=bool(result.is_error)
+            call,
+            decision,
+            decision_ms=decided_ms,
+            upstream_error=bool(result.is_error),
         )
         return types.CallToolResult(
             content=result.content,

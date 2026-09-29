@@ -21,6 +21,8 @@ from agentguard.runlog import RunLog, TrialRecord, new_run_dir, summarize_attemp
 from agentguard.settings import get_settings
 
 app = typer.Typer(no_args_is_help=True)
+guards_app = typer.Typer(no_args_is_help=True, help="Gateway runtime guards (Phase 4).")
+app.add_typer(guards_app, name="guards")
 receipts_app = typer.Typer(
     no_args_is_help=True, help="Prove or erase values committed in receipts."
 )
@@ -242,3 +244,49 @@ def receipts_forget(
     removed = SaltStore(salts).forget(commitment)
     typer.echo("salt deleted" if removed else "no salt for that commitment")
     raise typer.Exit(0 if removed else 1)
+
+
+StateDirOpt = Annotated[
+    Path | None, typer.Option(help="Gateway guard state dir (default: GUARD_STATE_DIR).")
+]
+
+
+def _guard_state(state_dir: Path | None):
+    from agentguard.guards.state import GuardState
+
+    return GuardState(state_dir or get_settings().guard_state_dir)
+
+
+@app.command()
+def kill(
+    agent: Annotated[str | None, typer.Option(help="Agent name to stop.")] = None,
+    did: Annotated[str | None, typer.Option(help="Agent DID to stop.")] = None,
+    reason: Annotated[str, typer.Option(help="Why (recorded in receipts).")] = "manual kill",
+    state_dir: StateDirOpt = None,
+) -> None:
+    """Stop an agent now, even though its token is still valid. Also revokes tokens it was
+    seen presenting, and so everything delegated from them."""
+    if (agent is None) == (did is None):
+        raise typer.BadParameter("pass exactly one of --agent or --did")
+    affected = _guard_state(state_dir).kill(reason, did=did, name=agent)
+    typer.echo(f"killed {agent or did} ({len(affected)} DID(s) with recorded tokens)")
+
+
+@app.command()
+def revive(
+    agent: Annotated[str | None, typer.Option(help="Agent name.")] = None,
+    did: Annotated[str | None, typer.Option(help="Agent DID.")] = None,
+    state_dir: StateDirOpt = None,
+) -> None:
+    """Lift a kill."""
+    if (agent is None) == (did is None):
+        raise typer.BadParameter("pass exactly one of --agent or --did")
+    _guard_state(state_dir).revive(did=did, name=agent)
+    typer.echo(f"revived {agent or did}")
+
+
+@guards_app.command("reset")
+def guards_reset(state_dir: StateDirOpt = None) -> None:
+    """Revive every agent and clear budgets and taint in the running gateway."""
+    _guard_state(state_dir).reset()
+    typer.echo("guard state reset")

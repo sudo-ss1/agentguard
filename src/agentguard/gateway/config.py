@@ -4,6 +4,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
+from agentguard.guards.budgets import BudgetConfig
+
 
 class AgentPolicy(BaseModel):
     tools: list[str]
@@ -14,6 +16,12 @@ class IdentityTrust(BaseModel):
 
     issuer_did: str
     biscuit_root_key: str  # hex Ed25519 public key
+
+
+class GuardsConfig(BaseModel):
+    # Kill list, recorded tokens and the reset epoch (Phase 4). Gateway-local.
+    state_dir: Path = Path(".lab-state/guards")
+    budgets: BudgetConfig = BudgetConfig()
 
 
 class GatewayConfig(BaseModel):
@@ -28,6 +36,7 @@ class GatewayConfig(BaseModel):
     salts_path: Path = Path(".lab-state/receipt-salts.jsonl")
     # How often upstream tool lists are re-fetched and checked against their pins.
     refresh_interval_s: float = 5.0
+    guards: GuardsConfig = GuardsConfig()
 
 
 def load_gateway_config(path: Path) -> GatewayConfig:

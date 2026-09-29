@@ -14,3 +14,14 @@ salts_path: /receipt-salts/salts.jsonl   # own volume, mounted only into the gat
 refresh_interval_s: 1
 # Public trust material (issuer DID, Biscuit root public key), written by `agentguard provision`.
 identity_file: /gateway-trust/identity.json
+# Phase 4 guards. The state (kill list, reset epoch) is gateway-only: the agent container
+# must not be able to revive itself.
+guards:
+  state_dir: /gateway-state/guards
+  budgets:
+    window_s: 60
+    calls_per_window: {fetch_url: 30, default: 60}
+    cost: {send_email: 5, delete_file: 5, default: 1}
+    cost_budget: 200
+    cost_window_s: 3600
+    trip_after_rate_denials: 20

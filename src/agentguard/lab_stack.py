@@ -17,6 +17,7 @@ import yaml
 
 from agentguard import labfs
 from agentguard.agent.scripted import Acting
+from agentguard.guards.state import GuardState
 from agentguard.identity.client import Credentials
 from agentguard.identity.provision import provision
 
@@ -40,6 +41,7 @@ class Lab:
     # Guarded labs: every lab agent's credentials. Empty in baseline (no identity layer).
     credentials: dict[str, Credentials] = field(default_factory=dict)
     salts_path: Path | None = None  # the receipts' commitment salts (guarded labs)
+    guard_state_dir: Path | None = None  # kill list and reset epoch (guarded labs)
 
     def identity_for(self, acting: Acting | None = None) -> str | Credentials:
         """What a toolbox presents for `acting` (the lab agent by default).
@@ -65,6 +67,8 @@ class Lab:
         labfs.reset(self.lab_root)
         self.outbox_path.unlink(missing_ok=True)
         self.rugpull_flag.unlink(missing_ok=True)
+        if self.guard_state_dir is not None:  # revive agents, clear budgets and taint
+            GuardState(self.guard_state_dir).reset()
 
     def rug_pull(self) -> None:
         self.rugpull_flag.touch()
@@ -121,7 +125,11 @@ def _provision_identities(
 
 
 @contextmanager
-def local_lab(guarded: bool = False, log_dir: Path | None = None) -> Iterator[Lab]:
+def local_lab(
+    guarded: bool = False,
+    log_dir: Path | None = None,
+    gateway_overrides: dict | None = None,
+) -> Iterator[Lab]:
     """Start the lab. With `log_dir`, the gateway's decision log and pins are written there and
     kept after the lab stops; otherwise they live in the lab's temporary folder."""
     with tempfile.TemporaryDirectory(prefix="agentguard-lab-") as tmp_dir:
@@ -166,6 +174,7 @@ def local_lab(guarded: bool = False, log_dir: Path | None = None) -> Iterator[La
                 identity = _provision_identities(lab, start, tmp, procs)
                 lab.receipts_path = logs / "receipts.jsonl"
                 lab.salts_path = logs / "receipt-salts.jsonl"
+                lab.guard_state_dir = tmp / "guards"
                 config = tmp / "gateway.yaml"
                 gateway = yaml.safe_load((REPO_ROOT / "config" / "gateway.yaml").read_text())
                 gateway.update(
@@ -174,6 +183,11 @@ def local_lab(guarded: bool = False, log_dir: Path | None = None) -> Iterator[La
                     pins_path=str(logs / "pins.json"),
                     receipts_path=str(lab.receipts_path),
                     salts_path=str(logs / "receipt-salts.jsonl"),
+                    guards={
+                        **gateway.get("guards", {}),
+                        "state_dir": str(tmp / "guards"),
+                        **(gateway_overrides.get("guards", {}) if gateway_overrides else {}),
+                    },
                     refresh_interval_s=LOCAL_REFRESH_S,
                     identity=identity,
                 )

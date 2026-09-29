@@ -17,6 +17,7 @@ attack:        ## scripted attacks against a local lab, both modes; prints the r
 	AGENTGUARD_MODE=guarded uv run agentguard attack --local
 
 attack-llm:    ## scripted + LLM attacks inside the Docker lab (AGENTGUARD_MODE picks the stack)
+	docker compose exec gateway agentguard guards reset   # revive agents, clear budgets/taint
 	docker compose run --rm agent agentguard attack --llm --trials $(TRIALS)
 
 bench:         ## per-call latency direct vs through the gateway
