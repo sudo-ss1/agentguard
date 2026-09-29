@@ -89,6 +89,7 @@ class ReceiptLog:
         upstream_exception: BaseException | None = None,
         denial_class: str | None = None,
         approval: dict[str, Any] | None = None,
+        result_scan: dict[str, Any] | None = None,
     ) -> None:
         receipt: dict[str, Any] = {
             "ts": datetime.now(UTC).isoformat(),
@@ -107,6 +108,13 @@ class ReceiptLog:
             receipt["denial_class"] = denial_class
         if approval is not None:
             receipt["approval"] = approval
+        if result_scan is not None:  # ids, counts and scores; stripped content only as a commitment
+            scan = dict(result_scan)
+            if scan.get("stripped_content") is not None:
+                scan["stripped_content"] = {
+                    "commitment": self.salts.commit("stripped_content", scan["stripped_content"])
+                }
+            receipt["result_scan"] = scan
         if upstream_exception is not None:
             receipt["upstream_error"] = {
                 "exception": type(upstream_exception).__name__,

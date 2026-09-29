@@ -47,6 +47,7 @@ from agentguard.guards import Guard, combine, run_guards
 from agentguard.guards.approvals import ApprovalQueue, ApprovalRequirement, TaintTracker
 from agentguard.guards.budgets import BudgetGuard
 from agentguard.guards.killswitch import KillSwitchCheck
+from agentguard.guards.result_scan import ResultScanner
 from agentguard.guards.secrets import SecretScanGuard
 from agentguard.guards.state import GuardState
 from agentguard.policy.cedar import CedarCheck
@@ -57,6 +58,47 @@ log = logging.getLogger(__name__)
 
 def _identity(ctx: ServerRequestContext[Any, Any]) -> Identity:
     return identity_of(ctx.request)
+
+
+def _walk_strings(value: Any, out: list[str]) -> None:
+    if isinstance(value, str):
+        out.append(value)
+    elif isinstance(value, dict):
+        for v in value.values():
+            _walk_strings(v, out)
+    elif isinstance(value, list):
+        for v in value:
+            _walk_strings(v, out)
+
+
+def _replace_strings(value: Any, it: Any) -> Any:
+    if isinstance(value, str):
+        return next(it)
+    if isinstance(value, dict):
+        return {k: _replace_strings(v, it) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_replace_strings(v, it) for v in value]
+    return value
+
+
+def _result_strings(result: types.CallToolResult) -> list[str]:
+    """Every string in a result the agent could read: text blocks, then structured content."""
+    out = [c.text for c in result.content if isinstance(c, types.TextContent)]
+    _walk_strings(result.structured_content, out)
+    return out
+
+
+def _with_strings(result: types.CallToolResult, strings: list[str]) -> types.CallToolResult:
+    """The same result with its strings replaced, in the order `_result_strings` gave them."""
+    it = iter(strings)
+    content = [
+        c.model_copy(update={"text": next(it)}) if isinstance(c, types.TextContent) else c
+        for c in result.content
+    ]
+    structured = _replace_strings(result.structured_content, it)
+    return types.CallToolResult(
+        content=content, is_error=result.is_error, structured_content=structured
+    )
 
 
 def _error(text: str) -> types.CallToolResult:
@@ -95,6 +137,10 @@ class Gateway:
             SecretScanGuard(),
             ApprovalRequirement(approvals, self.taint),
         ]
+        # Result scanning: every tool name the gateway knows can be a lure in a tool result.
+        self.scanner = ResultScanner(
+            config.guards.injection, {t for p in config.agents.values() for t in p.tools}
+        )
         # Budgets run last, after Cedar and approval, as the plan orders.
         self.budget_guards: list[Guard] = [BudgetGuard(config.guards.budgets, self.guard_state)]
         self.receipts = ReceiptLog(config.receipts_path, SaltStore(config.salts_path))
@@ -233,15 +279,27 @@ class Gateway:
                 call, decision, decision_ms=decided_ms, approval=approval, upstream_exception=exc
             )
             return _error(f"upstream {server} failed: {exc}")
+        visible, scan = await asyncio.to_thread(
+            self.scanner.scan, params.name, server, _result_strings(result)
+        )
+        if scan.taint and identity.profile is not None:
+            self.taint.taint(identity.profile.did)
         self.receipts.write(
             call,
             decision,
             decision_ms=decided_ms,
             approval=approval,
             upstream_error=bool(result.is_error),
+            result_scan=scan.record(),
         )
-        return types.CallToolResult(
-            content=result.content,
-            is_error=result.is_error,
-            structured_content=result.structured_content,
-        )
+        if scan.withhold:  # the visible text itself matched, or it couldn't be fully scanned
+            why = (
+                "flagged as possible prompt injection: " + ", ".join(scan.findings)
+                if scan.visible_flagged
+                else f"could not be fully scanned: {scan.error}"
+            )
+            follow_up = (
+                " High-risk actions now need human approval for a while." if scan.taint else ""
+            )
+            return _error(f"AgentGuard withheld this tool result ({why}).{follow_up}")
+        return _with_strings(result, visible)  # hidden content stripped

@@ -20,10 +20,16 @@ dependencies = [
     "joserfc>=1.0",
     "fastapi>=0.115",
     "google-re2>=1.1",
+    "onnxruntime>=1.20",
+    "tokenizers>=0.20",
+    "huggingface_hub>=0.30",
+    "yara-python==4.5.4",
 ]
 
 [project.optional-dependencies]
 anthropic = ["langchain-anthropic>=0.3"]
+# Only for building the int8 injection-classifier model (`agentguard models build`), not at runtime.
+models = ["onnx>=1.16"]
 
 [project.scripts]
 agentguard = "agentguard.cli:app"

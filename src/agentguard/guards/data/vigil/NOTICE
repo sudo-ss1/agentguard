@@ -1,0 +1,8 @@
+These YARA rule files are from Vigil (https://github.com/deadbits/vigil-llm),
+Copyright (c) Adam M. Swanda (deadbits) and contributors, licensed under the
+Apache License, Version 2.0 (see LICENSE in this directory).
+
+Vendored unmodified at commit f2b4c134d060bae81d29fad07003f3c657e63fc8 (data/yara/).
+Only these five rules are used: instruction_bypass, system_instructions, guidance,
+react_txt, mdexfil. File hashes are in MANIFEST.json and are checked at load time.
+Vigil has had no commits since January 2024.

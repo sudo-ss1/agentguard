@@ -66,3 +66,17 @@ def gateway_denials(lab):
         return [r["policy_id"] for r in map(json.loads, lines) if r["decision"] != "allow"]
 
     return denials
+
+
+@pytest.fixture
+def gateway_receipts(lab):
+    """All gateway receipts recorded during the test (guarded mode only)."""
+    path = lab.receipts_path
+    start = len(path.read_text().splitlines()) if path and path.exists() else 0
+
+    def rows() -> list[dict]:
+        if path is None or not path.exists():
+            return []
+        return [json.loads(line) for line in path.read_text().splitlines()[start:]]
+
+    return rows

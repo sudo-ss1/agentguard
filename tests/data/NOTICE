@@ -1,0 +1,4 @@
+deepset_prompt_injections_train_sample.json: rows 0-199 of the train split of
+deepset/prompt-injections (https://huggingface.co/datasets/deepset/prompt-injections),
+licensed under the Apache License 2.0. Used only as test inputs. The scanner evaluation
+uses the separate test split.

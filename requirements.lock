@@ -36,7 +36,9 @@ cffi==2.1.1
 charset-normalizer==3.5.1
     # via requests
 click==8.5.0
-    # via uvicorn
+    # via
+    #   huggingface-hub
+    #   uvicorn
 cryptography==50.0.1
     # via
     #   joserfc
@@ -45,6 +47,12 @@ distro==1.9.0
     # via langsmith
 fastapi==0.141.1
     # via agentguard (pyproject.toml)
+filelock==4.0.6
+    # via huggingface-hub
+flatbuffers==25.12.19
+    # via onnxruntime
+fsspec==2026.9.0
+    # via huggingface-hub
 google-re2==1.1.20251105
     # via agentguard (pyproject.toml)
 h11==0.16.0
@@ -52,6 +60,8 @@ h11==0.16.0
     #   httpcore
     #   httpcore2
     #   uvicorn
+hf-xet==1.6.0
+    # via huggingface-hub
 httpcore==1.0.9
     # via httpx
 httpcore2==2.13.1
@@ -59,6 +69,7 @@ httpcore2==2.13.1
 httpx==0.28.1
     # via
     #   agentguard (pyproject.toml)
+    #   huggingface-hub
     #   langchain-core
     #   langgraph-sdk
     #   ollama
@@ -66,6 +77,10 @@ httpx2==2.13.1
     # via
     #   langsmith
     #   mcp
+huggingface-hub==1.33.0
+    # via
+    #   agentguard (pyproject.toml)
+    #   tokenizers
 idna==3.20
     # via
     #   anyio
@@ -115,8 +130,12 @@ mcp-types==2.2.0
     # via mcp
 mdurl==0.1.2
     # via markdown-it-py
+numpy==2.5.3
+    # via onnxruntime
 ollama==0.6.2
     # via langchain-ollama
+onnxruntime==1.30.0
+    # via agentguard (pyproject.toml)
 opentelemetry-api==1.45.0
     # via mcp
 orjson==3.12.0
@@ -127,8 +146,12 @@ ormsgpack==1.12.2
     # via langgraph-checkpoint
 packaging==26.3
     # via
+    #   huggingface-hub
     #   langchain-core
     #   langsmith
+    #   onnxruntime
+protobuf==7.36.2
+    # via onnxruntime
 pycparser==3.0
     # via cffi
 pydantic==2.13.5
@@ -158,6 +181,7 @@ python-multipart==0.0.32
 pyyaml==6.0.3
     # via
     #   agentguard (pyproject.toml)
+    #   huggingface-hub
     #   langchain-core
 referencing==0.37.0
     # via
@@ -190,6 +214,10 @@ starlette==1.7.0
     #   sse-starlette
 tenacity==9.1.4
     # via langchain-core
+tokenizers==0.23.2
+    # via agentguard (pyproject.toml)
+tqdm==4.70.1
+    # via huggingface-hub
 truststore==0.10.4
     # via
     #   httpcore2
@@ -201,6 +229,7 @@ typing-extensions==4.16.0
     #   anyio
     #   fastapi
     #   httpx2
+    #   huggingface-hub
     #   langchain-core
     #   langchain-protocol
     #   langsmith
@@ -234,5 +263,7 @@ xxhash==4.0.1
     # via
     #   langgraph
     #   langsmith
+yara-python==4.5.4
+    # via agentguard (pyproject.toml)
 zstandard==0.25.0
     # via langsmith

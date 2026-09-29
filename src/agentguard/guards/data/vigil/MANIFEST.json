@@ -1,0 +1,22 @@
+{
+  "source": "https://github.com/deadbits/vigil-llm",
+  "commit": "f2b4c134d060bae81d29fad07003f3c657e63fc8",
+  "path": "data/yara/",
+  "license": "Apache-2.0 (see LICENSE)",
+  "maintenance": "unmaintained: last commit January 2024",
+  "rules_used": [
+    "guidance.yar",
+    "instruction_bypass.yar",
+    "mdexfil.yar",
+    "react_txt.yar",
+    "system_instructions.yar"
+  ],
+  "sha256": {
+    "guidance.yar": "9dcd16218bae59f02f7f8dcf35a4073dd91d5c21c20299396b13e85f15989129",
+    "instruction_bypass.yar": "c840d9602964722e50508bcff1eea1f2500282e5203a777cefd0c5f06a2de5b1",
+    "mdexfil.yar": "bada308bde9e832371d079864c50c5be3556da3295e4c1ef3a027d6946fd21e7",
+    "react_txt.yar": "50bc4af746fbff53d9f7e5a1ce44a7c559590750b8ce77cae52f2c9121d1eafc",
+    "system_instructions.yar": "43082f0499fe2696b7560082331803018f05803b81e82c6a64ccff52b329d931",
+    "LICENSE": "047d1d6e8b5f19a88f81e7ac907ca863692f15609215a6923445635e72ad9dde"
+  }
+}

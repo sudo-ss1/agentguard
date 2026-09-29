@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from agentguard.guards.approvals import ApprovalConfig
 from agentguard.guards.budgets import BudgetConfig
+from agentguard.guards.result_scan import InjectionConfig
 
 
 class AgentPolicy(BaseModel):
@@ -24,6 +25,7 @@ class GuardsConfig(BaseModel):
     state_dir: Path = Path(".lab-state/guards")
     budgets: BudgetConfig = BudgetConfig()
     approvals: ApprovalConfig = ApprovalConfig()
+    injection: InjectionConfig = InjectionConfig()
 
 
 class GatewayConfig(BaseModel):
