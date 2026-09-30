@@ -19,7 +19,7 @@ The gateway authorizes with only the root public key, fully offline. It supplies
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from biscuit_auth import (
@@ -35,6 +35,24 @@ from biscuit_auth import (
 )
 
 from agentguard.identity.didkey import AgentKey, public_key_from_did
+
+# Biscuit's authorizer bounds Datalog evaluation with three limits, all set explicitly here:
+#
+# - Facts and iterations (deterministic): the primary protection against expensive tokens. Our
+#   tokens hold facts and checks but no rules, so a legitimate authorization needs a few dozen
+#   facts and a couple of rounds; anything far beyond that is refused the same way every time.
+# - Time: Biscuit's 1 ms default denied valid calls under CPU load on the lab machine
+#   (authorizations reached 4.1 ms), which caused an intermittent test failure, so it is 10 ms.
+#   It still matters as a bound: the fact limit is checked between evaluation rounds, so one
+#   expensive round (e.g. a holder-appended rule joining 100 facts with themselves) runs to
+#   completion first. A hostile token can therefore cost up to about the time limit, half the
+#   20 ms per-call budget, before it is denied.
+#
+# Hitting any limit is a deny, reported as "authorizer-limit" rather than as a missing right.
+AUTHORIZER_MAX_FACTS = 256
+AUTHORIZER_MAX_ITERATIONS = 16
+AUTHORIZER_MAX_TIME = timedelta(milliseconds=10)
+_LIMIT_ERROR = "execution limits"
 
 
 class TokenError(Exception):
@@ -154,10 +172,13 @@ def authorize(
     holder_did: str,
     tool: str,
     now: datetime | None = None,
+    max_time: timedelta = AUTHORIZER_MAX_TIME,
+    max_facts: int = AUTHORIZER_MAX_FACTS,
+    max_iterations: int = AUTHORIZER_MAX_ITERATIONS,
 ) -> TokenDecision:
     """May `holder_did` (proven by its request signature) call `tool` with this token?"""
     biscuit = parse(token, root_public_key)
-    authorizer = AuthorizerBuilder(
+    builder = AuthorizerBuilder(
         """
         tool({tool});
         holder({holder});
@@ -165,11 +186,17 @@ def authorize(
         allow if tool($t), right($t);
         """,
         {"tool": tool, "holder": holder_did, "now": now or datetime.now(UTC)},
-    ).build(biscuit)
+    )
+    limits = builder.limits()  # type: ignore[attr-defined]  # stubs lag the runtime (see ED25519)
+    limits.max_facts, limits.max_iterations, limits.max_time = max_facts, max_iterations, max_time
+    builder.set_limits(limits)  # type: ignore[attr-defined]
+    authorizer = builder.build(biscuit)
     try:
         authorizer.authorize()
     except AuthorizationError as exc:
         message = str(exc)
+        if _LIMIT_ERROR in message:  # evaluation stopped early: fail closed, and say why
+            return TokenDecision(False, "authorizer-limit")
         checks = tuple(m.strip() for m in _FAILED_CHECK.findall(message))
         rights_matched = "an allow policy matched" in message
         return TokenDecision(False, _classify(checks, rights_matched), checks)

@@ -242,3 +242,57 @@ def test_token_from_another_root_is_rejected(minted):
     )
     with pytest.raises(TokenError):
         decide(minted, forged, minted["sub"].key.did, "send_email")
+
+
+# --- the authorizer's execution limits (the cause of an intermittent failure) -----------------
+
+
+def test_the_time_limit_is_set_explicitly_with_headroom():
+    from agentguard.tokens.biscuit import AUTHORIZER_MAX_TIME
+
+    # Biscuit's default is 1 ms; under full CPU load on the lab machine valid authorizations
+    # took up to 4.1 ms, so the default sometimes denied valid calls.
+    assert timedelta(milliseconds=10) == AUTHORIZER_MAX_TIME
+
+
+def test_hitting_the_time_limit_denies_and_says_why(minted):
+    """Fail closed, but report the limit instead of a misleading 'rights'."""
+    decision = authorize(
+        minted["parent"].token,
+        minted["root"],
+        minted["parent"].key.did,
+        "send_email",
+        max_time=timedelta(microseconds=1),
+    )
+    assert not decision.allowed and decision.reason == "authorizer-limit"
+
+
+def test_appended_plain_facts_grant_nothing_and_stay_cheap(minted):
+    """Junk facts in a holder-appended block don't widen authority: the narrowed token still
+    authorizes exactly what it did (fetch_url) and nothing more."""
+    flood = (
+        Biscuit.from_base64(minted["narrowed"], minted["root"])
+        .append(BlockBuilder("".join(f"junk({i});" for i in range(5000))))
+        .to_base64()
+    )
+    assert decide(minted, flood, minted["sub"].key.did, "fetch_url").allowed
+    assert not decide(minted, flood, minted["sub"].key.did, "send_email").allowed
+
+
+def test_an_exploding_appended_rule_is_denied_by_the_fact_limit_not_the_clock(minted):
+    """A holder-appended rule whose evaluation explodes (100 x 100 = 10,000 generated facts) is
+    denied by the deterministic fact limit: with a clock so generous it can't be the cause, it is
+    still denied; with the fact limit lifted too, the same token evaluates and is allowed."""
+    code = "".join(f"n({i});" for i in range(100)) + "pair($a, $b) <- n($a), n($b);"
+    bomb = Biscuit.from_base64(minted["narrowed"], minted["root"]).append(BlockBuilder(code))
+    args = (bomb.to_base64(), minted["root"], minted["sub"].key.did, "fetch_url")
+    no_clock = timedelta(seconds=30)
+    by_facts = authorize(*args, max_time=no_clock)
+    assert not by_facts.allowed and by_facts.reason == "authorizer-limit"
+    assert authorize(*args, max_time=no_clock, max_facts=10**6).allowed
+
+
+def test_limits_are_set_explicitly():
+    from agentguard.tokens.biscuit import AUTHORIZER_MAX_FACTS, AUTHORIZER_MAX_ITERATIONS
+
+    assert (AUTHORIZER_MAX_FACTS, AUTHORIZER_MAX_ITERATIONS) == (256, 16)

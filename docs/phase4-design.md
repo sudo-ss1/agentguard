@@ -183,6 +183,40 @@ the classifier (if enabled) flags it or can't finish.
   - The agent is tainted, because the stripped text names `read_file` and `send_email`.
   - The decision log still shows both policy denials (`no-ssh-keys`, `default-deny`).
 
-**Test note.** One full-suite run failed an assertion that a token authorizes a tool (reason
-`rights`). It did not reproduce in 10 further full runs or 25 targeted runs of the two
-candidate files. The cause is not identified.
+## The intermittent token failure, and authorizer limits (2026-09-30)
+
+**What it was.** One full-suite run failed an assertion that a valid token authorizes a tool
+(reason `rights`, no failed checks). It was a wrongful **deny**, never an allow.
+
+- **Cause:** Biscuit's authorizer has a default 1 ms time limit. Under CPU load on this machine
+  (i5-1345U, 3 physical cores, WSL), plain authorizations reached 4.1 ms, so a valid call was
+  occasionally denied.
+- **Mislabelled:** the classifier reported that limit error as `rights`.
+- **Reproduced** under full CPU load: 2 of 5,000 valid calls were denied. Under the same load,
+  0 of 5,000 calls for a tool the token lacks were allowed. Hitting a limit is always a deny.
+- **Ruled out:**
+  - The expiry boundary is deterministic: valid at the exact expiry second, denied one second
+    later, in 1,000 runs each.
+  - The order of failed checks was identical in 1,000 runs.
+  - The replay cache accepted exactly 1 of 64 racing threads in each of 200 rounds.
+  - 200 parallel calls through a real gateway were all allowed.
+
+**Fix** (`tokens/biscuit.py`). All three authorizer limits are set explicitly:
+
+| Limit | Value | Role |
+| --- | --- | --- |
+| Facts | 256 | Primary, deterministic protection. Our tokens hold facts and checks but no rules, so legitimate authorizations need a few dozen facts. |
+| Iterations | 16 | Primary, deterministic protection: legitimate authorizations need a couple of rounds. |
+| Time | 10 ms | The bound on cost (see below). |
+
+After the fix, 0 of 20,000 valid calls are denied under full CPU load, and 200 stress runs of
+the token-related tests with 3 cores busy all passed.
+
+**Budget impact.** A hostile token can consume up to about the time limit, **10 ms, half the
+20 ms per-call budget**, before it is denied. The fact limit is checked between evaluation
+rounds, so a single expensive round runs to completion first. A holder-appended rule joining
+100 facts with themselves took about 12 ms to reach the fact-limit denial, measured under load.
+The clock therefore bounds the cost, while the fact limit gives a deterministic denial. A limit
+hit is reported with its own reason, `authorizer-limit`, never as a missing right (`rights`).
+Tests: `test_an_exploding_appended_rule_is_denied_by_the_fact_limit_not_the_clock` and
+`test_hitting_the_time_limit_denies_and_says_why`.
