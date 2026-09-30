@@ -1,11 +1,11 @@
 """Audit helpers for receipt commitments: prove a committed value, or erase it."""
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from agentguard.gateway.commitments import SaltStore, matches
+from agentguard.ledger.read import receipt_at
 
 
 @dataclass(frozen=True)
@@ -37,8 +37,6 @@ def prove(receipt: dict[str, Any], attribute: str, value: Any, salts: SaltStore)
 
 
 def read_receipt(receipts: Path, line: int) -> dict[str, Any]:
-    """1-based line number, as `grep -n` or an editor would show it."""
-    for i, text in enumerate(receipts.read_text().splitlines(), 1):
-        if i == line:
-            return dict(json.loads(text))
-    raise IndexError(f"{receipts} has no line {line}")
+    """1-based line number, as `grep -n` or an editor would show it. For a ledger line, the
+    receipt is its body (an allowed call's upstream error is on its outcome receipt's line)."""
+    return receipt_at(receipts, line)

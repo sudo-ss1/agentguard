@@ -173,3 +173,23 @@ store as more sensitive than the receipts.
 
 **Reading results that need targets.** The LLM harness's "target existed" count takes targets
 from its own call log, matched to receipts by `args_sha256` (`runlog.py`), not from receipts.
+
+## Phase 5: audit ledger
+
+```mermaid
+flowchart LR
+    G[Gateway] -- decision receipt, then call --> T[tool servers]
+    G -- signed, hash-chained receipts --> L[(ledger volume<br/>receipts.jsonl)]
+    G -- signed checkpoints, public key --> R[(ledger-roots volume)]
+    K[(ledger-key volume<br/>signing key)] --- G
+    H[Agent container / harness] -. read-only .-> L
+    H -. read-only .-> R
+```
+
+**Change from the plan: JSON lines, not SQLite.** The plan's technology table says "Service +
+SQLite". The ledger is a JSON-lines file instead. Tamper evidence comes from the hash chain,
+signatures and checkpoints, not from the storage engine: an SQLite file can be edited as easily
+as a text file. JSON lines keep the log readable with `jq`, need no extra service, and make
+torn-write recovery a matter of bytes after the last newline.
+
+Details: [phase5-design.md](phase5-design.md).

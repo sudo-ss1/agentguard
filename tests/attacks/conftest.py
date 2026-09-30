@@ -8,13 +8,12 @@ landed (blocked_in_phase <= CURRENT_PHASE) must be blocked; later ones are still
 xfail, so a phase can't claim a block it doesn't deliver.
 """
 
-import json
-
 import pytest
 
 from agentguard import CURRENT_PHASE
 from agentguard.attacks import load_scenario
 from agentguard.lab_stack import local_lab
+from agentguard.ledger.read import calls, line_count
 from agentguard.settings import get_settings
 
 
@@ -57,13 +56,10 @@ def gateway_denials(lab):
     from the client quietly refusing a call it was never shown.
     """
     path = lab.receipts_path
-    start = len(path.read_text().splitlines()) if path and path.exists() else 0
+    start = line_count(path)
 
     def denials() -> list[str]:
-        if path is None or not path.exists():
-            return []
-        lines = path.read_text().splitlines()[start:]
-        return [r["policy_id"] for r in map(json.loads, lines) if r["decision"] != "allow"]
+        return [r["policy_id"] for r in calls(path, start) if r["decision"] != "allow"]
 
     return denials
 
@@ -72,11 +68,9 @@ def gateway_denials(lab):
 def gateway_receipts(lab):
     """All gateway receipts recorded during the test (guarded mode only)."""
     path = lab.receipts_path
-    start = len(path.read_text().splitlines()) if path and path.exists() else 0
+    start = line_count(path)
 
     def rows() -> list[dict]:
-        if path is None or not path.exists():
-            return []
-        return [json.loads(line) for line in path.read_text().splitlines()[start:]]
+        return calls(path, start)
 
     return rows

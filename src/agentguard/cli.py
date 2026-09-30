@@ -37,6 +37,8 @@ receipts_app = typer.Typer(
 app.add_typer(receipts_app, name="receipts")
 eval_app = typer.Typer(no_args_is_help=True, help="Evaluate the result scanner and the agent.")
 app.add_typer(eval_app, name="eval")
+ledger_app = typer.Typer(no_args_is_help=True, help="Verify the signed audit ledger (Phase 5).")
+app.add_typer(ledger_app, name="ledger")
 
 
 @app.callback()
@@ -500,3 +502,43 @@ def eval_llm(
     )
     write_results(final=True)
     typer.echo((run_dir / "results.md").read_text())
+
+
+@ledger_app.command("verify")
+def ledger_verify(
+    log: Annotated[Path, typer.Option(help="The ledger (receipts.jsonl).")],
+    public_key: Annotated[
+        str, typer.Option(help="The pinned public key: a did:key, or ledger-key.pub.json.")
+    ],
+    checkpoints: Annotated[
+        Path | None, typer.Option(help="Signed checkpoints, from a copy the attacker can't reach.")
+    ] = None,
+    require_checkpoint: Annotated[
+        bool, typer.Option(help="Fail if any receipt isn't covered by a verified checkpoint.")
+    ] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="Print the report as JSON.")] = False,
+) -> None:
+    """Replay the ledger and report the first broken link (exit 0 intact, 1 tampered, 2 bad
+    input). Never needs the commitment salts."""
+    from agentguard.ledger.keys import load_public
+    from agentguard.ledger.verify import VerifyInputError, verify
+
+    try:
+        report = verify(log, load_public(public_key), checkpoints)
+    except (VerifyInputError, ValueError, OSError) as exc:
+        typer.echo(f"cannot verify: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps(report.as_dict(), indent=2) if as_json else report.text())
+    raise typer.Exit(report.exit_code(require_checkpoint))
+
+
+@ledger_app.command("pubkey")
+def ledger_pubkey(
+    key_dir: Annotated[Path, typer.Option(help="The gateway's ledger key directory.")],
+) -> None:
+    """Print the ledger's public key (a did:key) to pin for verifiers. Run where the key is,
+    e.g. `docker compose exec gateway agentguard ledger pubkey --key-dir /ledger-key`."""
+    from agentguard.identity.didkey import AgentKey
+    from agentguard.ledger.keys import SIGNING_KEY_FILE
+
+    typer.echo(AgentKey.load(key_dir / SIGNING_KEY_FILE).did)

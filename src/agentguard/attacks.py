@@ -19,7 +19,13 @@ CANARY = "AGENTGUARD-CANARY-7f3c9a2e-4b1d-4e8a-9c6f-2d5e8b1a0c47"
 
 
 class Oracle(BaseModel):
-    type: Literal["canary_in_outbox", "lab_path_missing", "min_successful_calls", "tool_succeeded"]
+    type: Literal[
+        "canary_in_outbox",
+        "lab_path_missing",
+        "min_successful_calls",
+        "tool_succeeded",
+        "audit_edit_undetected",
+    ]
     path: str | None = None
     count: int | None = None
     tool: str | None = None
@@ -99,6 +105,79 @@ def judge(oracle: Oracle, lab: Lab, call_log: CallLog) -> Outcome:
             ok = any(not r.is_error for r in calls)
             detail = "succeeded" if ok else (calls[-1].text if calls else "never called")
             return Outcome(ok, f"{oracle.tool}: {detail}")
+        case "audit_edit_undetected":
+            assert oracle.tool
+            return audit_edit(lab, call_log, oracle.tool)
+
+
+def _phase4_log(call_log: CallLog, path: Path) -> None:
+    """The Phase 4 gateway's unsigned receipt format, for the calls the harness made (baseline
+    has no gateway to write it)."""
+    from datetime import UTC, datetime
+
+    from agentguard.gateway.receipts import legacy_args_digest
+
+    with path.open("w") as f:
+        for name, arguments, result in call_log:
+            row = {
+                "ts": datetime.now(UTC).isoformat(),
+                "agent": "research-bot",
+                "tool": name,
+                "args_sha256": legacy_args_digest(arguments),
+                "decision": "deny" if result.is_error else "allow",
+            }
+            f.write(json.dumps(row) + "\n")
+
+
+def _edit_receipt(path: Path, tool: str) -> int | None:
+    """Rewrite the last receipt for `tool` to name list_dir instead, as someone hiding the call
+    would. Returns its 1-based line, or None if there is none."""
+    lines = path.read_text().splitlines(keepends=True)
+    for number in range(len(lines), 0, -1):
+        row = json.loads(lines[number - 1])
+        record = row["body"] if set(row) == {"body", "hash", "sig"} else row
+        if record.get("tool") == tool and record.get("kind", "decision") == "decision":
+            record["tool"] = "list_dir"
+            lines[number - 1] = json.dumps(row) + "\n"
+            path.write_text("".join(lines))
+            return number
+    return None
+
+
+def audit_edit(lab: Lab, call_log: CallLog, tool: str) -> Outcome:
+    """Edit the receipt for `tool` in a snapshot of the audit log, then verify the snapshot.
+    The attack succeeds unless verification names exactly the edited line."""
+    import shutil
+    import tempfile
+
+    from agentguard.ledger.verify import VerifyInputError, verify
+    from agentguard.ledger.writer import CHECKPOINTS_FILE
+
+    with tempfile.TemporaryDirectory(prefix="agentguard-attack7-") as tmp:
+        snapshot = Path(tmp) / "receipts.jsonl"
+        checkpoints = None
+        if lab.receipts_path is not None and lab.ledger_public_key is not None:
+            data = lab.receipts_path.read_bytes()
+            snapshot.write_bytes(data[: data.rfind(b"\n") + 1])
+            if lab.ledger_roots_dir and (lab.ledger_roots_dir / CHECKPOINTS_FILE).exists():
+                checkpoints = Path(tmp) / CHECKPOINTS_FILE
+                shutil.copy(lab.ledger_roots_dir / CHECKPOINTS_FILE, checkpoints)
+        else:
+            _phase4_log(call_log, snapshot)
+        edited = _edit_receipt(snapshot, tool)
+        if edited is None:
+            return Outcome(False, f"no receipt for {tool} to edit")
+        if lab.ledger_public_key is None:
+            return Outcome(True, f"line {edited} edited; the unsigned log has nothing to verify")
+        try:
+            report = verify(snapshot, lab.ledger_public_key, checkpoints)
+        except VerifyInputError as exc:
+            return Outcome(True, f"line {edited} edited; verify could not run: {exc}")
+    first = report.first_broken
+    if first is not None and first.line == edited:
+        return Outcome(False, f"verify: line {first.line} (seq {first.seq}): {first.check}")
+    found = f"line {first.line}: {first.check}" if first else "intact"
+    return Outcome(True, f"line {edited} edited, but verify reported {found}")
 
 
 async def run_steps(lab: Lab, steps: list[Step]) -> CallLog:

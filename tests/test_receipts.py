@@ -12,7 +12,10 @@ from agentguard.gateway.audit import commitment_in, prove, read_receipt
 from agentguard.gateway.checks import CallContext, Decision
 from agentguard.gateway.commitments import SaltStore, digest, matches
 from agentguard.gateway.receipts import ReceiptLog, path_class
+from agentguard.identity.didkey import AgentKey
 from agentguard.lab_stack import local_lab
+from agentguard.ledger.read import calls
+from agentguard.ledger.writer import Ledger
 
 # --- commitments ------------------------------------------------------------------------------
 
@@ -42,12 +45,17 @@ def test_salt_store_is_owner_only(tmp_path):
 # --- structured reasons -------------------------------------------------------------------------
 
 
-def write(tmp_path, decision, **extra):
-    log = ReceiptLog(tmp_path / "r.jsonl", SaltStore(tmp_path / "s.jsonl"))
-    log.write(
-        CallContext("research-bot", "send_email", "email", {}), decision, decision_ms=0.1, **extra
-    )
-    return json.loads((tmp_path / "r.jsonl").read_text()), (tmp_path / "r.jsonl").read_text()
+def write(tmp_path, decision, upstream_exception=None):
+    """Record one call; returns it as one record (decision and outcome merged), and the log."""
+    ledger = Ledger(tmp_path / "r.jsonl", AgentKey.generate(), tmp_path / "roots")
+    log = ReceiptLog(ledger, SaltStore(tmp_path / "s.jsonl"))
+    context = CallContext("research-bot", "send_email", "email", {})
+    seq = log.decision(context, decision, decision_ms=0.1)
+    if upstream_exception is not None:
+        log.outcome(seq, context, upstream_exception=upstream_exception)
+    ledger.close()
+    (record,) = calls(tmp_path / "r.jsonl")
+    return record, (tmp_path / "r.jsonl").read_text()
 
 
 def test_coarse_values_in_clear_precise_values_committed(tmp_path):
@@ -126,10 +134,10 @@ def attack_receipts():
 
 
 def test_real_attack_receipts_hold_no_recipient_or_exact_path(attack_receipts):
-    _, text, _ = attack_receipts
+    lab, text, _ = attack_receipts
     for needle in SENSITIVE:
         assert needle not in text, f"{needle!r} leaked into the receipt log"
-    for receipt in map(json.loads, text.splitlines()):
+    for receipt in calls(lab.receipts_path):
         attributes = receipt["reason"].get("attributes", {})
         for name in ("recipient", "path", "error_message"):
             if name in attributes:  # present only as a commitment
@@ -138,16 +146,16 @@ def test_real_attack_receipts_hold_no_recipient_or_exact_path(attack_receipts):
 
 
 def test_attack_2_delete_of_root_is_class_and_commitment_only(attack_receipts):
-    _, text, salts = attack_receipts
-    (delete,) = [r for r in map(json.loads, text.splitlines()) if r["tool"] == "delete_file"]
+    lab, _, salts = attack_receipts
+    (delete,) = [r for r in calls(lab.receipts_path) if r["tool"] == "delete_file"]
     attributes = delete["reason"]["attributes"]
     assert attributes["path_class"] == "outside /workspace"
     assert prove(delete, "path", "/", salts).status == "proven"
 
 
 def test_revealing_the_salt_proves_the_recipient(attack_receipts):
-    _, text, salts = attack_receipts
-    (email,) = [r for r in map(json.loads, text.splitlines()) if r["tool"] == "send_email"]
+    lab, _, salts = attack_receipts
+    (email,) = [r for r in calls(lab.receipts_path) if r["tool"] == "send_email"]
     assert prove(email, "recipient", "attacker@evil.test", salts).status == "proven"
     assert prove(email, "recipient", "sam@lab.test", salts).status == "mismatch"
 

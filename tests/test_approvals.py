@@ -8,6 +8,7 @@ import pytest
 from agentguard.attacks import load_scenario, run_scripted
 from agentguard.guards.approvals import decide, list_pending
 from agentguard.lab_stack import local_lab
+from agentguard.ledger.read import calls
 from tests.gateway_helpers import add_tool, call, ctx, identity, receipts
 
 SENDER = identity("research-bot", tools=("send_email", "fetch_url", "read_file", "delete_file"))
@@ -156,7 +157,7 @@ def test_stale_requests_are_voided_at_startup(tmp_path):
 def test_attacks_4_and_5_never_reach_approval(scenario, layer):
     with local_lab(guarded=True) as lab:
         outcome = asyncio.run(run_scripted(load_scenario(scenario), lab))
-        rows = [json.loads(line) for line in lab.receipts_path.read_text().splitlines()]
+        rows = calls(lab.receipts_path)
         pending = list_pending(lab.guard_state_dir / "approvals")
     assert not outcome.succeeded
     assert [(r["policy_id"], r["denial_class"]) for r in rows] == [(layer, "policy")]

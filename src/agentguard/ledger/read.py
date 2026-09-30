@@ -27,9 +27,9 @@ def line_count(path: Path | None) -> int:
     return data[: data.rfind(b"\n") + 1].count(b"\n")
 
 
-def _rows(path: Path, start: int) -> list[dict[str, Any]]:
+def _rows(path: Path, start: int, end: int | None) -> list[dict[str, Any]]:
     data = path.read_bytes()
-    lines = data[: data.rfind(b"\n") + 1].splitlines()[start:]
+    lines = data[: data.rfind(b"\n") + 1].splitlines()[start:end]
     return [json.loads(line) for line in lines if line.strip()]
 
 
@@ -37,15 +37,15 @@ def is_ledger_line(row: dict[str, Any]) -> bool:
     return set(row) == LINE_KEYS and isinstance(row.get("body"), dict)
 
 
-def calls(path: Path | None, start: int = 0) -> list[dict[str, Any]]:
-    """One record per call from line `start` on: decision fields, plus the outcome's fields
+def calls(path: Path | None, start: int = 0, end: int | None = None) -> list[dict[str, Any]]:
+    """One record per call in lines [start, end): decision fields, plus the outcome's fields
     when its outcome receipt is in range (`outcome` is "unknown" for an allowed call without
     one)."""
     if path is None or not path.exists():
         return []
     out: list[dict[str, Any]] = []
     by_seq: dict[int, dict[str, Any]] = {}
-    for row in _rows(path, start):
+    for row in _rows(path, start, end):
         if not is_ledger_line(row):
             out.append(row)  # a Phase 4 unsigned receipt
             continue

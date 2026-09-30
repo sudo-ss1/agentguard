@@ -5,8 +5,8 @@ calling agent may use, so a changed upstream description never reaches the agent
 loop re-fetches upstream tool lists and quarantines any server whose pinned tools changed.
 (The list handler must stay cheap: the MCP HTTP transport calls it before every tools/call.)
 
-tools/call runs the check pipeline, writes a receipt, and forwards the call only if every
-check allows it.
+tools/call runs the check pipeline, writes a signed decision receipt, and forwards the call
+only if every check allows it and the receipt was recorded. An outcome receipt follows.
 
 Identity (Phase 3): `IdentityMiddleware` verifies each request's credential, DPoP proof and
 capability token before the handlers run. The agent name used by the allowlist and Cedar is
@@ -50,6 +50,9 @@ from agentguard.guards.killswitch import KillSwitchCheck
 from agentguard.guards.result_scan import ResultScanner
 from agentguard.guards.secrets import SecretScanGuard
 from agentguard.guards.state import GuardState
+from agentguard.ledger import keys as ledger_keys
+from agentguard.ledger.canonical import canonical_arguments
+from agentguard.ledger.writer import Ledger
 from agentguard.policy.cedar import CedarCheck
 from agentguard.tokens.biscuit import load_root_public_key
 
@@ -143,7 +146,18 @@ class Gateway:
         )
         # Budgets run last, after Cedar and approval, as the plan orders.
         self.budget_guards: list[Guard] = [BudgetGuard(config.guards.budgets, self.guard_state)]
-        self.receipts = ReceiptLog(config.receipts_path, SaltStore(config.salts_path))
+        ledger_config = config.ledger
+        signing_key = ledger_keys.load_or_create(ledger_config.key_dir)
+        ledger_keys.export_public(signing_key, ledger_config.roots_dir)
+        self.ledger = Ledger(
+            config.receipts_path,
+            signing_key,
+            ledger_config.roots_dir,
+            durability=ledger_config.durability,
+            fsync_interval_s=ledger_config.fsync_interval_s,
+            checkpoint_interval_s=ledger_config.checkpoint_interval_s,
+        )
+        self.receipts = ReceiptLog(self.ledger, SaltStore(config.salts_path))
         self.upstreams: dict[str, Client] = {}
         self.routes: dict[str, tuple[str, types.Tool]] = {}  # tool name -> (server, tool)
         self._stack = AsyncExitStack()
@@ -159,7 +173,14 @@ class Gateway:
     async def __aexit__(self, *exc: object) -> None:
         if self._refresher:
             self._refresher.cancel()
-        await self._stack.aclose()
+        try:
+            await self._stack.aclose()
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        """Write a final checkpoint and release the ledger."""
+        self.ledger.close()
 
     async def _refresh_loop(self) -> None:
         while True:
@@ -204,6 +225,7 @@ class Gateway:
     ) -> types.ListToolsResult:
         identity = _identity(ctx)
         if identity.profile is None:
+            log.warning("tools/list from an unverified caller (%s): no tools", identity.error)
             return types.ListToolsResult(tools=[])
         agent, credential_tools = identity.profile.name, set(identity.profile.allowed_tools)
         return types.ListToolsResult(
@@ -257,6 +279,13 @@ class Gateway:
                 )
         if decision.allowed:  # budgets last: after Cedar and approval, as the plan orders
             decision = combine(decision, run_guards(self.budget_guards, call))
+        if decision.allowed and not canonical_arguments(call.arguments):
+            # Its receipt couldn't carry an exact argument hash, so the call isn't made.
+            decision = Decision(
+                "deny",
+                "arguments can't be recorded exactly (RFC 8785): e.g. an integer beyond 2**53",
+                "arguments-not-canonical",
+            )
 
         if not decision.allowed:
             if not policy.allowed:
@@ -265,32 +294,34 @@ class Gateway:
                 denial_class = f"approval-{approval['outcome']}"  # never "the gateway blocked it"
             else:
                 denial_class = "guard"
-            self.receipts.write(
+            self.receipts.decision(
                 call, decision, decision_ms=decided_ms, denial_class=denial_class, approval=approval
             )
             return _error(
                 f"AgentGuard denied {params.name}: {decision.reason} [policy: {decision.policy_id}]"
             )
         assert server is not None
+        try:  # no receipt, no call
+            decision_seq = self.receipts.decision(
+                call, decision, decision_ms=decided_ms, approval=approval
+            )
+        except Exception as exc:
+            log.error(
+                "could not record the decision for %s; not forwarding it: %r", params.name, exc
+            )
+            return _error(f"AgentGuard could not record this call, so it was not made ({exc})")
         try:
             result = await self.upstreams[server].call_tool(params.name, call.arguments)
         except Exception as exc:
-            self.receipts.write(
-                call, decision, decision_ms=decided_ms, approval=approval, upstream_exception=exc
-            )
+            self.receipts.outcome(decision_seq, call, upstream_exception=exc)
             return _error(f"upstream {server} failed: {exc}")
         visible, scan = await asyncio.to_thread(
             self.scanner.scan, params.name, server, _result_strings(result)
         )
         if scan.taint and identity.profile is not None:
             self.taint.taint(identity.profile.did)
-        self.receipts.write(
-            call,
-            decision,
-            decision_ms=decided_ms,
-            approval=approval,
-            upstream_error=bool(result.is_error),
-            result_scan=scan.record(),
+        self.receipts.outcome(
+            decision_seq, call, upstream_error=bool(result.is_error), result_scan=scan.record()
         )
         if scan.withhold:  # the visible text itself matched, or it couldn't be fully scanned
             why = (

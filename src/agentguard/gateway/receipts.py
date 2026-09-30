@@ -1,4 +1,9 @@
-"""Decision receipts as JSON lines. Phase 5 turns this into the signed, hash-chained ledger.
+"""What goes in a receipt. The ledger (agentguard.ledger) signs and chains them.
+
+Every call gets a decision receipt, written before an allowed call is forwarded: if it can't be
+recorded, the call isn't made. An allowed call then gets an outcome receipt (`decision_seq`,
+upstream error, result scan). A decision with no outcome is reported by `verify` as "outcome
+unknown".
 
 Receipts never contain argument values. Arguments appear only as a hash (`args_sha256`). A
 decision's reason is a structured record (receipt option C, docs/phase3-design.md):
@@ -17,13 +22,12 @@ decision's reason is a structured record (receipt option C, docs/phase3-design.m
 
 import hashlib
 import json
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from agentguard.gateway.checks import CallContext, Decision
 from agentguard.gateway.commitments import SaltStore
 from agentguard.ledger.canonical import CanonicalError, jcs
+from agentguard.ledger.writer import Ledger
 
 # Attribute values that are coarse enough to keep in the clear.
 CLEAR_ATTRIBUTES = frozenset(
@@ -48,7 +52,8 @@ def args_digest(arguments: dict[str, Any]) -> str:
     is reproducible anywhere. Receipts never store argument values themselves.
 
     Raises CanonicalError for arguments RFC 8785 can't represent exactly (e.g. integers beyond
-    2**53); the gateway then denies the call rather than record an ambiguous hash."""
+    2**53). The gateway denies such calls (`arguments-not-canonical`) and records them with the
+    legacy hash, marked `args_hash: legacy-json`."""
     return hashlib.sha256(jcs(arguments)).hexdigest()
 
 
@@ -78,10 +83,9 @@ def path_class(path: str) -> str:
 
 
 class ReceiptLog:
-    def __init__(self, path: Path, salts: SaltStore) -> None:
-        self.path = path
+    def __init__(self, ledger: Ledger, salts: SaltStore) -> None:
+        self.ledger = ledger
         self.salts = salts
-        path.parent.mkdir(parents=True, exist_ok=True)
 
     def _redact(self, attributes: dict[str, Any]) -> dict[str, Any]:
         record: dict[str, Any] = {}
@@ -100,35 +104,51 @@ class ReceiptLog:
             reason["attributes"] = self._redact(decision.attributes)
         return reason
 
-    def write(
+    def decision(
         self,
         ctx: CallContext,
         decision: Decision,
         *,
         decision_ms: float,
-        upstream_error: bool | None = None,
-        upstream_exception: BaseException | None = None,
         denial_class: str | None = None,
         approval: dict[str, Any] | None = None,
-        result_scan: dict[str, Any] | None = None,
-    ) -> None:
+    ) -> int:
+        """Record the decision; returns its seq. Raises if it can't be recorded."""
+        profile = ctx.identity.profile if ctx.identity is not None else None
         receipt: dict[str, Any] = {
-            "ts": datetime.now(UTC).isoformat(),
             "agent": ctx.agent_id,
+            "agent_did": profile.did if profile is not None else None,
             "tool": ctx.tool,
             "server": ctx.server,
-            "args_sha256": args_digest(ctx.arguments),
             "decision": decision.verdict,
             "policy_id": decision.policy_id,
             "reason": self.reason(decision),
             "decision_ms": decision_ms,
         }
+        try:
+            receipt["args_sha256"] = args_digest(ctx.arguments)
+        except CanonicalError:  # still recorded; such a call is never forwarded (proxy.py)
+            receipt["args_sha256"] = legacy_args_digest(ctx.arguments)
+            receipt["args_hash"] = "legacy-json"
         if denial_class is not None:
             # policy | guard | approval-denied | approval-timeout | approval-error.
             # Only policy and guard denials mean the gateway blocked the call on its merits.
             receipt["denial_class"] = denial_class
         if approval is not None:
             receipt["approval"] = approval
+        seq, _ = self.ledger.append("decision", receipt)
+        return seq
+
+    def outcome(
+        self,
+        decision_seq: int,
+        ctx: CallContext,
+        *,
+        upstream_error: bool | None = None,
+        upstream_exception: BaseException | None = None,
+        result_scan: dict[str, Any] | None = None,
+    ) -> int:
+        receipt: dict[str, Any] = {"decision_seq": decision_seq, "tool": ctx.tool}
         if result_scan is not None:  # ids, counts and scores; stripped content only as a commitment
             scan = dict(result_scan)
             if scan.get("stripped_content") is not None:
@@ -145,5 +165,5 @@ class ReceiptLog:
             }
         elif upstream_error is not None:
             receipt["upstream_error"] = upstream_error
-        with self.path.open("a") as f:
-            f.write(json.dumps(receipt) + "\n")
+        seq, _ = self.ledger.append("outcome", receipt)
+        return seq

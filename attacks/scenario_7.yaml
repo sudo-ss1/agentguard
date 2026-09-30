@@ -3,3 +3,17 @@ name: Audit database row edited
 owasp: Ledger integrity
 available_from_phase: 5
 blocked_in_phase: 5
+# Scripted only. The agent reads the SSH key, then someone with write access to the audit log
+# rewrites that receipt so it looks like a harmless list_dir. The attack succeeds unless
+# verification points to exactly the edited receipt.
+#
+# Guarded: the gateway's signed ledger, verified with the key pinned when the lab started.
+# Baseline: there is no gateway, so the harness writes the Phase 4 unsigned log format for the
+# same calls; nothing can verify it. The edit is made on a snapshot of the log so the session's
+# own log stays usable for other tests; verify reads the same bytes either way.
+scripted:
+  - tool: read_file
+    args: {path: "~/.ssh/id_rsa"}
+  - tool: list_dir
+    args: {path: "/workspace"}
+oracle: {type: audit_edit_undetected, tool: read_file}

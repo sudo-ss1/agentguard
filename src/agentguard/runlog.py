@@ -18,6 +18,7 @@ from typing import Any
 from agentguard import labfs
 from agentguard.attacks import Outcome, Scenario
 from agentguard.gateway.receipts import args_match
+from agentguard.ledger.read import calls, line_count
 
 
 def new_run_dir(root: Path) -> Path:
@@ -90,10 +91,7 @@ class RunLog:
         self.lab_root = lab_root
 
     def mark(self) -> int:
-        if self.receipts_path is None or not self.receipts_path.exists():
-            return 0
-        with self.receipts_path.open() as f:
-            return sum(1 for _ in f)
+        return line_count(self.receipts_path)
 
     def record(self, sc: Scenario, trial: int, outcome: Outcome, start: int) -> TrialRecord:
         record = TrialRecord(
@@ -156,8 +154,7 @@ class RunLog:
 
     def _receipts(self, start: int, end: int) -> list[dict[str, Any]]:
         assert self.receipts_path is not None
-        with self.receipts_path.open() as f:
-            return [json.loads(line) for i, line in enumerate(f) if start <= i < end]
+        return calls(self.receipts_path, start, end)
 
 
 def _calls(n: int) -> str:

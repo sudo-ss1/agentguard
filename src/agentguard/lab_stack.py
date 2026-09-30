@@ -20,6 +20,7 @@ from agentguard.agent.scripted import Acting
 from agentguard.guards.state import GuardState
 from agentguard.identity.client import Credentials
 from agentguard.identity.provision import provision
+from agentguard.ledger import keys as ledger_keys
 
 REPO_ROOT = labfs.SEED_ROOT.parents[1]
 EVIL_SITE_DIR = REPO_ROOT / "lab" / "evil_site"
@@ -42,6 +43,8 @@ class Lab:
     credentials: dict[str, Credentials] = field(default_factory=dict)
     salts_path: Path | None = None  # the receipts' commitment salts (guarded labs)
     guard_state_dir: Path | None = None  # kill list and reset epoch (guarded labs)
+    ledger_roots_dir: Path | None = None  # checkpoints and the exported public key
+    ledger_public_key: bytes | None = None  # pinned when the lab starts
 
     def identity_for(self, acting: Acting | None = None) -> str | Credentials:
         """What a toolbox presents for `acting` (the lab agent by default).
@@ -183,6 +186,12 @@ def local_lab(
                     pins_path=str(logs / "pins.json"),
                     receipts_path=str(lab.receipts_path),
                     salts_path=str(logs / "receipt-salts.jsonl"),
+                    ledger={
+                        **gateway.get("ledger", {}),
+                        "key_dir": str(tmp / "ledger-key"),
+                        "roots_dir": str(logs / "ledger-roots"),
+                        **(gateway_overrides.get("ledger", {}) if gateway_overrides else {}),
+                    },
                     guards={
                         **gateway.get("guards", {}),
                         "state_dir": str(tmp / "guards"),
@@ -205,6 +214,11 @@ def local_lab(
                     ]
                 )
                 lab.servers = {"gateway": f"http://127.0.0.1:{port}/mcp"}
+                # Pinned at setup, as a verifier would be given it: the gateway exports it on start.
+                lab.ledger_roots_dir = logs / "ledger-roots"
+                lab.ledger_public_key = ledger_keys.load_public(
+                    lab.ledger_roots_dir / ledger_keys.PUBLIC_KEY_FILE
+                )
             yield lab
         finally:
             for proc in procs:

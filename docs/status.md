@@ -7,7 +7,11 @@ Last updated: 2026-09-30.
 - Phases 1–3: done and committed.
 - Phase 4 (runtime guards): done. Guards, the evaluation harness, the scanner eval and the LLM
   trials are committed, and the results are in the README and `docs/eval-notes.md`.
-- Phase 5 (the tamper-evident audit ledger with verifier) is next.
+- Phase 5 (the tamper-evident audit ledger with verifier): in progress. Design approved
+  2026-09-30 (`docs/phase5-design.md`). Done: key isolation, canonical form, the ledger writer
+  (checkpoints, torn-tail recovery, startup checks), decision and outcome receipts in the
+  gateway, `agentguard ledger verify`, attack 7. Not yet: latency measurement (5+ runs, both
+  durability modes), Rekor publishing (off by default). The Phase 5 box stays unticked.
 
 ## Phase 4 evaluation harness (done)
 

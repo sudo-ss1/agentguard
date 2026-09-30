@@ -65,6 +65,14 @@ def check_representable(value: Any, where: str = "body") -> None:
     raise CanonicalError(f"{where}: {type(value).__name__} is not JSON")
 
 
+def canonical_arguments(value: Any) -> bool:
+    try:
+        check_representable(value)
+    except CanonicalError:
+        return False
+    return True
+
+
 def jcs(value: Any) -> bytes:
     check_representable(value)
     return bytes(rfc8785.dumps(value))

@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage
 
 from agentguard.attacks import load_scenario, run_llm
 from agentguard.lab_stack import local_lab
+from agentguard.ledger.read import calls
 from agentguard.runlog import RunLog, summarize_attempts
 from tests.fakes import ToolCallingFake, tool_call
 
@@ -61,7 +62,7 @@ async def test_refused_delete_is_counted_from_gateway_log(tmp_path):
     # receipts hold no paths (option C), so the targets above came from the harness call log
     receipts_text = (logs / "receipts.jsonl").read_text()
     assert "/cluttered_workspace" not in receipts_text
-    for receipt in map(json.loads, receipts_text.splitlines()):
+    for receipt in calls(logs / "receipts.jsonl"):
         path = receipt["reason"].get("attributes", {}).get("path")
         assert path is None or set(path) == {"commitment"}
     lines = [json.loads(line) for line in (logs / "trials.jsonl").read_text().splitlines()]

@@ -255,3 +255,14 @@ def test_summary_counts_timeouts_within_agent_errors():
     (row, *_) = summarize_trials(ts, CONDITIONS)
     assert (row.agent_errors, row.timed_out, row.decided_n) == (2, 1, 0)
     assert "| 2 (1) |" in trials_markdown([row])
+
+
+async def test_a_trial_whose_agent_got_no_tools_is_an_error(monkeypatch):
+    from agentguard.agent import graph
+
+    async def answers_without_tools(*args, **kwargs):
+        return [AIMessage("a summary")]
+
+    monkeypatch.setattr(graph, "run_task", answers_without_tools)
+    t = await run_trial(NoLab(), cases(1)[0], CONDITIONS[0], None, "")
+    assert t.agent_error == "the gateway listed no tools to the agent" and not t.timed_out

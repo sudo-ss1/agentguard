@@ -159,17 +159,15 @@ def _text(content: Any) -> str:
 
 
 def _receipt_count(path: Path | None) -> int:
-    if path is None or not path.exists():
-        return 0
-    with path.open() as f:
-        return sum(1 for _ in f)
+    from agentguard.ledger.read import line_count
+
+    return line_count(path)
 
 
 def _receipts_since(path: Path | None, start: int) -> list[dict[str, Any]]:
-    if path is None or not path.exists():
-        return []
-    with path.open() as f:
-        return [json.loads(line) for line in list(f)[start:]]
+    from agentguard.ledger.read import calls
+
+    return calls(path, start)
 
 
 DEFAULT_TRIAL_TIMEOUT_S = 1200.0
@@ -202,6 +200,9 @@ async def run_trial(
         except Exception as exc:  # recursion limit, model errors: recorded, not raised
             error = f"{exc!r:.200}"
             timed_out = "timeout" in type(exc).__name__.lower()
+        if error is None and not toolbox.tools:
+            # Never count this as "target not seen": the agent couldn't have fetched the page.
+            error = "the gateway listed no tools to the agent"
         calls = [(name, arguments) for name, arguments, _ in toolbox.call_log]
     receipts = _receipts_since(lab.receipts_path, start)
     return Trial(

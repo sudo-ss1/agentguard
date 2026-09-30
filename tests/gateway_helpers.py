@@ -4,7 +4,6 @@ Identity is attached the way `IdentityMiddleware` attaches it, with a real root 
 tokens, so the capability-token check runs for real.
 """
 
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,11 +11,18 @@ from types import SimpleNamespace
 import pytest
 from mcp import types
 
-from agentguard.gateway.config import AgentPolicy, GatewayConfig, GuardsConfig, IdentityTrust
+from agentguard.gateway.config import (
+    AgentPolicy,
+    GatewayConfig,
+    GuardsConfig,
+    IdentityTrust,
+    LedgerConfig,
+)
 from agentguard.gateway.identity import STATE_KEY, Identity
 from agentguard.gateway.proxy import Gateway
 from agentguard.identity.didkey import AgentKey
 from agentguard.identity.vc import AgentProfile
+from agentguard.ledger.read import calls
 from agentguard.tokens.biscuit import RootAuthority
 
 ROOT = RootAuthority.generate()
@@ -82,6 +88,7 @@ async def gateway(tmp_path):
         receipts_path=tmp_path / "receipts.jsonl",
         salts_path=tmp_path / "salts.jsonl",
         guards=GuardsConfig(state_dir=tmp_path / "guards"),
+        ledger=LedgerConfig(key_dir=tmp_path / "ledger-key", roots_dir=tmp_path / "ledger-roots"),
     )
     gw = Gateway(config)
     gw.upstreams = {
@@ -90,11 +97,13 @@ async def gateway(tmp_path):
         "weather": FakeUpstream("weather", [tool("get_weather")]),
     }
     await gw.refresh()
-    return gw
+    yield gw
+    gw.close()
 
 
 def receipts(gw):
-    return [json.loads(line) for line in gw.config.receipts_path.read_text().splitlines()]
+    """One record per call, as in Phase 4 (decision and outcome receipts merged)."""
+    return calls(gw.config.receipts_path)
 
 
 def add_tool(gateway, name, server, properties):
