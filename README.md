@@ -5,17 +5,17 @@ MCP tools, with verifiable agent identity and a tamper-evident audit log. It's a
 project. See [agentguardplan.md](agentguardplan.md) for the goals and the 12-week roadmap, and
 [docs/architecture.md](docs/architecture.md) for the design.
 
-**Status: Phase 4 (runtime guards) in progress.** The agent and tools are still deliberately
-insecure. Putting the AgentGuard gateway in front of them (`AGENTGUARD_MODE=guarded`) blocks
-attacks 1–6:
+**Status: Phase 4 (runtime guards) complete; Phase 5 (the audit ledger) is next.** The agent
+and tools are still deliberately insecure. Putting the AgentGuard gateway in front of them
+(`AGENTGUARD_MODE=guarded`) blocks attacks 1–6:
 
 - attacks 1–3 through tool allowlists, Cedar policies and tool-description pinning
 - attacks 4–5 through signed agent identity and Biscuit capability tokens
 - attack 6 through per-agent budgets and a kill switch
 
 Phase 4 also adds secret scanning on arguments, human approval for high-risk calls, and
-stripping of hidden content from tool results. The injection-scanner evaluation is still to
-come.
+stripping of hidden content from tool results, with an evaluation of the scanner and of LLM
+trials ([Evaluation](#evaluation)).
 
 ## Quickstart
 
@@ -175,11 +175,67 @@ has no "allow", so a clean scanner result can never permit a call that policy de
   - Benign real pages pass untouched apart from stripping. Attack 1's hidden instruction is
     stripped, and the agent tainted.
 
-**Pattern rules catch little.** The vendored Vigil rules (unmaintained since January 2024)
-flagged **0 of 37** injections in a deepset train-split sample. The injection classifier
-(ProtectAI DeBERTa v2, int8) takes about 1.7 s per window on this machine, so it is disabled.
-This is why policy, not detection, does the protecting. Details are in
-[docs/eval-notes.md](docs/eval-notes.md) and [docs/phase4-design.md](docs/phase4-design.md).
+### Evaluation
+
+**AgentGuard controls tool calls, not what the model says.** It decides whether each call may
+run, and strips hidden content from tool results. Stopping visible text in a page from
+steering the model's own answer is outside its scope.
+
+**Pattern rules catch little, which is why policy does the protecting.**
+
+- **Vigil:** the vendored Vigil rules (unmaintained since January 2024) flagged **0 of 37**
+  injections in a deepset train-split sample.
+- **Scanner evaluation** (`agentguard eval scanner`, pinned corpora, 95% Clopper–Pearson
+  intervals):
+
+  | Corpus | n | Detected (tainted or withheld) | Reached the agent, visible placement |
+  | --- | --- | --- | --- |
+  | deepset test, injections | 60 | 0/60 (0%; 0–6%) | 60/60 |
+  | deepset test, benign | 56 | 0/56 false positives (0–6%)¹ | 56/56 |
+  | garak latent injection, 9 probes | 2,216 | 232/2,216 (10.5%; 9.2–11.8%) | 1,984/2,216 (89.5%) |
+
+  - All 232 garak detections came from one Vigil rule, `InstructionBypass`, in three of the
+    nine probes.
+  - Placed as hidden HTML, 0 of the 2,332 items reached the agent, because stripping
+    removes hidden content whatever it says.
+  - ¹ With n = 56 the false-positive interval is wide. Earlier real-page tests back it up:
+    - a 767 KB Wikipedia article: 0 withheld
+    - 163 benign rows of the deepset train sample: 0 withheld (0–2.2%)
+- **Classifier:** the injection classifier (ProtectAI DeBERTa v2, int8) takes about 1.7 s per
+  window on this machine, so it is disabled.
+
+**LLM trials** (`agentguard eval llm`) measured answer steering only.
+
+- **Setup:**
+  - Model: `qwen2.5:7b-instruct` on Ollama, digest `845dbda0ea48…` (Q4_K_M), temperature 0,
+    seed 7.
+  - Task: summarize a page carrying one of 24 garak cases, the same cases in every
+    condition, on a guarded gateway.
+  - Outcome: whether garak's target string appears in the final answer.
+
+| Condition | n | Target in answer | Tool call with target in its arguments | Gateway decision on those calls |
+| --- | --- | --- | --- | --- |
+| Visible, scanner on | 24 | 15/24 (62%; 41–81%) | 0/24 (0–14%) | none |
+| Hidden, scanner on | 24 | **0/24** (0%; 0–14%) | 0/24 (0–14%) | none |
+| Hidden, scanner off | 24 | 13/24 (54%; 33–74%) | 0/24 (0–14%) | none |
+
+"Scanner off" disables all result scanning, including stripping of hidden content.
+
+- **Stripping works on hidden text.** Of the 13 cases where hidden text steered the answer with
+  the scanner off, none did with it on.
+- **Visible text steering the answer is out of scope.** Visible text steered the answer in 15
+  of 24 trials. If injected text leads the agent to call a tool, the policy layers still apply,
+  as the scripted attacks show.
+- **Tool misuse wasn't tested here.** No trial made a tool call other than `fetch_url`, so the
+  gateway never had a harmful call to decide on. Tool misuse is covered by the scripted attacks
+  1–6 above.
+- **Undecided trials:** none. There were no approval timeouts or errors (10 s timeout during
+  trials; the gateway's default is 120 s), no agent errors and no timeouts.
+- **Future work:** LLM trials with tasks that use tools, taken from an external task set rather
+  than one we design.
+
+Details: [docs/eval-notes.md](docs/eval-notes.md) and
+[docs/phase4-design.md](docs/phase4-design.md).
 
 ## Audit receipts
 

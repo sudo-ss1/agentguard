@@ -5,10 +5,11 @@ Last updated: 2026-09-30.
 ## Phases
 
 - Phases 1–3: done and committed.
-- Phase 4 (runtime guards): guards done and committed. The evaluation harness is in progress.
-  The Phase 4 checklist box stays unticked until the user says otherwise.
+- Phase 4 (runtime guards): done. Guards, the evaluation harness, the scanner eval and the LLM
+  trials are committed, and the results are in the README and `docs/eval-notes.md`.
+- Phase 5 (the tamper-evident audit ledger with verifier) is next.
 
-## Phase 4 evaluation harness
+## Phase 4 evaluation harness (done)
 
 | Step | What | State |
 | --- | --- | --- |
@@ -67,14 +68,12 @@ Both corpora are fetched and hash-verified in `eval/data/`, which is gitignored:
   state). Don't delete or revert uncommitted work.
 - Commit locally as `sudo-ss1 <290857932+sudo-ss1@users.noreply.github.com>`. Don't push yet.
 - Commit after each step once its tests and lint pass.
-- Don't tick the Phase 4 box.
 - Stop and report before anything else if something could ever produce a wrong allow.
 - If a step is stopped again, say which one. The user will write that piece or review it.
 
 ## Open questions
 
+- Future work from Phase 4: LLM trials with tasks that use tools, taken from an external task
+  set rather than one we design.
 - Metrics: should `detected` stay "tainted or withheld", or should taint and withhold be reported
   as separate columns, with detection defined as either?
-- Reporting: the corpora hold mostly direct injections, while the gateway defends against indirect
-  (tool-result) injection. The report needs to say so, and to say the classifier was disabled.
-- LLM trials: which model digest to pin, and whether to use the lab Ollama host (<ollama-host>).
