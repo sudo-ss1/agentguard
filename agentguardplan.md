@@ -167,7 +167,7 @@ Phase checklist:
 - [x] Vulnerable baseline agent and attack scripts
 - [x] Gateway with allowlist and Cedar policies
 - [x] Agent DIDs, VCs and Biscuit delegation
-- [ ] Scanners, approvals, budgets and kill switch
+- [x] Scanners, approvals, budgets and kill switch
   - Note: gateway latency p50 ranged 4.1–8.2 ms across runs in Phase 3, so re-measure over multiple runs once the scanners land.
 - [ ] Tamper-evident audit ledger with verifier
 - [ ] Discovery scanner, risk engine and dashboard
