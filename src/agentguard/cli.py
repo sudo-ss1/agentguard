@@ -17,6 +17,7 @@ from agentguard.config import load_config
 from agentguard.identity.client import load_credentials, wait_for
 from agentguard.identity.provision import provision as run_provision
 from agentguard.lab_stack import Lab, local_lab
+from agentguard.ledger.keys import PUBLIC_KEY_FILE, load_public
 from agentguard.runlog import (
     RunLog,
     TrialRecord,
@@ -72,6 +73,11 @@ def open_lab(local: bool, log_dir: Path | None = None) -> Iterator[Lab]:
     )
     if guarded:  # credentials written by `agentguard provision`
         lab.credentials = load_credentials(s.credentials_dir)
+        # Pin the ledger's public key now, at setup, as a verifier would be given it.
+        public_key_file = s.ledger_roots_dir / PUBLIC_KEY_FILE
+        if public_key_file.exists():
+            lab.ledger_roots_dir = s.ledger_roots_dir
+            lab.ledger_public_key = load_public(public_key_file)
         if lab.agent_id not in lab.credentials:
             raise typer.BadParameter(
                 f"no credentials for {lab.agent_id!r} in {s.credentials_dir}; "

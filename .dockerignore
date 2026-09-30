@@ -5,3 +5,9 @@
 .ruff_cache
 .mypy_cache
 models
+# Never bake local secrets or evidence into images: env files, git history, local run logs
+# (which hold receipt salts), and the fetched evaluation corpora.
+.env
+.git
+run-logs
+eval/data

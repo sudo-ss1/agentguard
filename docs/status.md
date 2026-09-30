@@ -10,8 +10,9 @@ Last updated: 2026-09-30.
 - Phase 5 (the tamper-evident audit ledger with verifier): in progress. Design approved
   2026-09-30 (`docs/phase5-design.md`). Done: key isolation, canonical form, the ledger writer
   (checkpoints, torn-tail recovery, startup checks), decision and outcome receipts in the
-  gateway, `agentguard ledger verify`, attack 7, the pre-commit hook. In progress: latency
-  (5+ runs, both durability modes) and the Docker check. Rekor is skipped this phase (future
+  gateway, `agentguard ledger verify`, attack 7, the pre-commit hook. Latency measured
+  (docs/phase5-design.md). Docker lab checked 2026-09-30: attacks 1–7 blocked, the agent
+  container can't write the ledger or see the key and salts. Rekor is skipped this phase (future
   work). The Phase 5 box stays unticked.
 
 ## Phase 4 evaluation harness (done)
@@ -85,6 +86,17 @@ Both corpora are fetched and hash-verified in `eval/data/`, which is gitignored:
   (<reason>)` at WARNING, and the trial harness records such a trial as the agent error "the
   gateway listed no tools to the agent", never as "target not seen". The Phase 4 LLM results
   are unaffected (all 72 trials called fetch_url).
+
+- **Docker: taint carries across scripted scenarios.** In Docker the harness can't reset the
+  gateway's guard state between scenarios (it lives on the gateway-only volume, by design), so
+  attack 1's taint was still active in attack 6: its first 5 fetches needed approval and each
+  waited out the 120 s timeout (recorded as approval-timeout, not blocks) before the taint
+  expired and the budget stopped the loop (30/500). The local lab resets between scenarios.
+  Not fixed yet.
+- **Fixed 2026-09-30: local files baked into Docker images.** `.dockerignore` didn't exclude
+  `.env`, `.git`, `run-logs/` (which hold local receipt salts) or `eval/data/`, so `COPY . .`
+  put them in every image. They are now excluded; checked from inside the rebuilt agent
+  container. Older images built before the fix still contain them.
 
 ## Open questions
 
