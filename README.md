@@ -262,6 +262,17 @@ can't be proven or recovered, while the receipt stays byte-identical. This was s
 because Phase 5 hash-chains receipts into the audit ledger, after which they can't be changed.
 Details are in [docs/architecture.md](docs/architecture.md), under "Receipt exposure".
 
+**The audit ledger (Phase 5, in progress).**
+- **Receipts:** every receipt is signed by a key only the gateway holds, and hash-chained to
+  the one before it.
+- **Checkpoints:** a signed checkpoint with a Merkle root is written every minute.
+- **Verifying:** `agentguard ledger verify` names the first broken link, and never needs the
+  salts.
+- **Future work:** publishing checkpoints to Sigstore Rekor. It isn't built, and would be off
+  by default.
+
+Design: [docs/phase5-design.md](docs/phase5-design.md).
+
 ## Latency
 
 200 calls per tool on a local lab ([bench/baseline.json](bench/baseline.json),

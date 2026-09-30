@@ -56,10 +56,18 @@ def main() -> None:
     parser.add_argument("--guarded", action="store_true", help="Measure through the gateway.")
     parser.add_argument("--out", type=Path)
     parser.add_argument("--compare", type=Path, help="A direct-mode report to diff against.")
+    parser.add_argument(
+        "--durability",
+        choices=["batched", "strict"],
+        default="batched",
+        help="The gateway ledger's durability mode (with --guarded).",
+    )
     args = parser.parse_args()
-    with local_lab(guarded=args.guarded, gateway_overrides=BENCH_OVERRIDES) as lab:
+    overrides = {**BENCH_OVERRIDES, "ledger": {"durability": args.durability}}
+    with local_lab(guarded=args.guarded, gateway_overrides=overrides) as lab:
         report = asyncio.run(measure(lab, args.n))
-    text = json.dumps({"mode": "gateway" if args.guarded else "direct", "tools": report}, indent=2)
+    mode = f"gateway ({args.durability})" if args.guarded else "direct"
+    text = json.dumps({"mode": mode, "tools": report}, indent=2)
     print(text)
     if args.out:
         args.out.write_text(text + "\n")

@@ -10,8 +10,9 @@ Last updated: 2026-09-30.
 - Phase 5 (the tamper-evident audit ledger with verifier): in progress. Design approved
   2026-09-30 (`docs/phase5-design.md`). Done: key isolation, canonical form, the ledger writer
   (checkpoints, torn-tail recovery, startup checks), decision and outcome receipts in the
-  gateway, `agentguard ledger verify`, attack 7. Not yet: latency measurement (5+ runs, both
-  durability modes), Rekor publishing (off by default). The Phase 5 box stays unticked.
+  gateway, `agentguard ledger verify`, attack 7, the pre-commit hook. In progress: latency
+  (5+ runs, both durability modes) and the Docker check. Rekor is skipped this phase (future
+  work). The Phase 5 box stays unticked.
 
 ## Phase 4 evaluation harness (done)
 
@@ -75,9 +76,21 @@ Both corpora are fetched and hash-verified in `eval/data/`, which is gitignored:
 - Stop and report before anything else if something could ever produce a wrong allow.
 - If a step is stopped again, say which one. The user will write that piece or review it.
 
+## Known issues
+
+- **"No tools" (unexplained).** In 2 of about 32 runs of the LLM-trial end-to-end test
+  (2026-09-30), a freshly started guarded lab's agent was listed no tools, although its gateway
+  had pinned all seven and logged no error. It didn't recur in 26 later runs; the cause is
+  unknown. To diagnose a repeat: the gateway now logs `tools/list from an unverified caller
+  (<reason>)` at WARNING, and the trial harness records such a trial as the agent error "the
+  gateway listed no tools to the agent", never as "target not seen". The Phase 4 LLM results
+  are unaffected (all 72 trials called fetch_url).
+
 ## Open questions
 
 - Future work from Phase 4: LLM trials with tasks that use tools, taken from an external task
   set rather than one we design.
+- Future work from Phase 5: publishing checkpoints to Sigstore Rekor. Skipped this phase, not
+  built, off by default if added (design in `docs/phase5-design.md`).
 - Metrics: should `detected` stay "tainted or withheld", or should taint and withhold be reported
   as separate columns, with detection defined as either?

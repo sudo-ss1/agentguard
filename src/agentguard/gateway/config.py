@@ -40,7 +40,8 @@ class LedgerConfig(BaseModel):
     # batched: fsync on a background thread every fsync_interval_s, and before every
     #   checkpoint. An OS crash can lose the last receipts, including a decision receipt for a
     #   call already forwarded.
-    # strict: fsync every decision receipt before the call is forwarded (about +6 ms p50 here).
+    # strict: fsync every decision receipt before the call is forwarded (one fsync per call);
+    #   outcome receipts stay batched.
     durability: Literal["batched", "strict"] = "batched"
     fsync_interval_s: float = 0.1
 

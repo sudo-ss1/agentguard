@@ -338,12 +338,14 @@ def count_fsyncs(monkeypatch) -> list[int]:
     return calls_made
 
 
-def test_strict_durability_fsyncs_every_receipt(tmp_path, key, monkeypatch):
+def test_strict_durability_fsyncs_every_decision_receipt(tmp_path, key, monkeypatch):
     led = open_ledger(tmp_path, key, durability="strict")
     fsyncs = count_fsyncs(monkeypatch)
     for i in range(5):
-        led.append("decision", decision(i))
-    assert len(fsyncs) == 5
+        seq, _ = led.append("decision", decision(i, "allow"))
+        assert len(fsyncs) == i + 1  # durable before append returns
+        led.append("outcome", {"decision_seq": seq})
+    assert len(fsyncs) == 5  # outcome receipts follow the batched schedule
     led.close()
 
 

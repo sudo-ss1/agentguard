@@ -13,8 +13,10 @@ Durability:
   fsyncs every `fsync_interval_s`, and before every checkpoint. A process crash loses nothing
   already written. An OS crash can lose the last receipts, including the decision receipt of a
   call already forwarded.
-- strict: every receipt is fsynced before `append` returns, so a decision receipt is durable
-  before its call is forwarded. It costs about one fsync per receipt (~6 ms p50 here).
+- strict: every receipt except outcome receipts is fsynced before `append` returns, so a
+  decision receipt is durable before its call is forwarded. Outcome receipts follow the batched
+  schedule; an OS crash can lose one, which verify then reports as "outcome unknown". It costs
+  one fsync per call (~6 ms p50 here).
 
 Checkpoints: every `checkpoint_interval_s`, and on close, a signed checkpoint goes to
 `<roots_dir>/checkpoints.jsonl`: the ledger size, the head hash, the RFC 9162 Merkle root of the
@@ -258,7 +260,7 @@ class Ledger:
             line, h = seal(self.key.signing_key, RECEIPT_TAG, body)  # raises before any write
             try:
                 _write_all(self._fd, line)
-                if self.durability == "strict":
+                if self.durability == "strict" and kind != "outcome":
                     os.fsync(self._fd)
             except OSError as exc:
                 # A partial line may be on disk. Accept nothing more until a restart recovers it.
