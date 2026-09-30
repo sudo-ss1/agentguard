@@ -30,7 +30,6 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
-from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -135,72 +134,87 @@ def _style_hides(style: str) -> str | None:
     return None
 
 
-class _HiddenSpans(HTMLParser):
-    """Finds the character spans of outermost hidden elements and of comments."""
+_TOKEN = re.compile(r"<!--|<(/?)([A-Za-z][\w:-]*)((?:\"[^\"]*\"|'[^']*'|[^'\">])*)>", re.S)
+_ATTR = re.compile(r"""([^\s/=>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?""")
+_RAWTEXT = {"script", "style", "textarea", "title"}
+_CLASS_RULE = re.compile(r"\.([\w-]+)\s*\{([^}]*)\}")
 
-    def __init__(self, text: str) -> None:
-        super().__init__(convert_charrefs=True)
-        self.text = text
-        self._line_starts = [0] + [i + 1 for i, c in enumerate(text) if c == "\n"]
-        self.spans: list[tuple[int, int, str]] = []  # (start, end, category)
-        self.class_rules: dict[str, str] = {}
-        self.open: list[tuple[str, str | None]] = []  # (tag, category if it starts a hidden span)
-        self.hidden_from: tuple[int, str] | None = None  # the open hidden span, if any
-        self.in_style = False
 
-    def _offset(self) -> int:
-        line, col = self.getpos()
-        return self._line_starts[line - 1] + col
+def _attrs(raw: str) -> dict[str, str]:
+    return {
+        m.group(1).lower(): (m.group(2) or m.group(3) or m.group(4) or "")
+        for m in _ATTR.finditer(raw)
+    }
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == "style":
-            self.in_style = True
-        if tag in _VOID:
-            return
-        a = {k.lower(): (v or "") for k, v in attrs}
-        why = _style_hides(a.get("style", "")) or ("css-hidden-text" if "hidden" in a else None)
-        why = why or next(
-            (self.class_rules[c] for c in a.get("class", "").split() if c in self.class_rules), None
-        )
-        starts_span = why is not None and self.hidden_from is None
-        if starts_span:
-            assert why is not None
-            self.hidden_from = (self._offset(), why)
-        self.open.append((tag, why if starts_span else None))
 
-    def handle_endtag(self, tag: str) -> None:
-        if tag == "style":
-            self.in_style = False
-        if tag in _VOID or not any(t == tag for t, _ in self.open):
-            return
-        end = self.text.find(">", self._offset())
-        end = len(self.text) if end == -1 else end + 1
-        while self.open:
-            open_tag, category = self.open.pop()
-            if category is not None and self.hidden_from is not None:
-                self.spans.append((self.hidden_from[0], end, category))
-                self.hidden_from = None
-            if open_tag == tag:
-                break
+def _hidden_spans(text: str) -> list[tuple[int, int, str]]:
+    """Character spans (start, end, category) of outermost hidden elements and of comments.
 
-    def handle_data(self, data: str) -> None:
-        if self.in_style:
-            for selector, body in re.findall(r"\.([\w-]+)\s*\{([^}]*)\}", data):
-                category = _style_hides(body)
-                if category:
-                    self.class_rules[selector] = category
-
-    def handle_comment(self, data: str) -> None:
-        if self.hidden_from is not None:
-            return  # already inside a hidden span
-        start = self._offset()
-        end = self.text.find("-->", start)
-        self.spans.append((start, len(self.text) if end == -1 else end + 3, "html-comment"))
-
-    def finish(self) -> list[tuple[int, int, str]]:
-        if self.hidden_from is not None:  # never closed: hide everything after it
-            self.spans.append((self.hidden_from[0], len(self.text), self.hidden_from[1]))
-        return sorted(self.spans)
+    A small tokenizer on the C regex engine (about 2.7x faster than html.parser on large pages,
+    with identical spans on every page and fragment in the tests). It keeps source positions,
+    so spans are cut from the original text and everything else stays byte-identical, even for
+    non-HTML text that happens to contain "<". Contents of script/style/textarea/title are not
+    markup; style contents feed simple .class{} hiding rules.
+    """
+    spans: list[tuple[int, int, str]] = []
+    class_rules: dict[str, str] = {}
+    stack: list[tuple[str, bool]] = []  # (tag, whether it opened the hidden span)
+    hidden_from: tuple[int, str] | None = None
+    pos, n = 0, len(text)
+    while True:
+        m = _TOKEN.search(text, pos)
+        if not m:
+            break
+        start = m.start()
+        if m.group(0) == "<!--":
+            end = text.find("-->", start + 4)
+            end = n if end == -1 else end + 3
+            if hidden_from is None:
+                spans.append((start, end, "html-comment"))
+            pos = end
+            continue
+        closing, tag, raw = m.group(1), m.group(2).lower(), m.group(3)
+        end = m.end()
+        if closing:
+            if tag in _VOID or not any(t == tag for t, _ in stack):
+                pos = end
+                continue
+            while stack:
+                open_tag, starts = stack.pop()
+                if starts and hidden_from is not None:
+                    spans.append((hidden_from[0], end, hidden_from[1]))
+                    hidden_from = None
+                if open_tag == tag:
+                    break
+            pos = end
+            continue
+        rawtext_end = None
+        if tag in _RAWTEXT:  # contents aren't markup; style contents feed class rules
+            close = re.compile(rf"</{tag}\s*>", re.I).search(text, end)
+            rawtext_end = close.start() if close else n
+            if tag == "style":
+                for selector, body in _CLASS_RULE.findall(text[end:rawtext_end]):
+                    rule = _style_hides(body)
+                    if rule:
+                        class_rules[selector] = rule
+        if tag in _VOID or raw.rstrip().endswith("/"):
+            pos = end
+            continue
+        why: str | None = None
+        if raw and ("style" in raw or "hidden" in raw or "class" in raw):
+            a = _attrs(raw)
+            why = _style_hides(a.get("style", "")) or ("css-hidden-text" if "hidden" in a else None)
+            why = why or next(
+                (class_rules[c] for c in a.get("class", "").split() if c in class_rules), None
+            )
+        starts = False
+        if why is not None and hidden_from is None:
+            hidden_from, starts = (start, why), True
+        stack.append((tag, starts))
+        pos = rawtext_end if rawtext_end is not None else end
+    if hidden_from is not None:
+        spans.append((hidden_from[0], n, hidden_from[1]))
+    return sorted(spans)
 
 
 @dataclass
@@ -220,14 +234,8 @@ def strip_hidden(text: str) -> Stripped:
     if zero_width:
         removed.append(("zero-width", ""))  # counted, but these are ordinary: never a signal
     if "<" in text:
-        parser = _HiddenSpans(text)
-        try:
-            parser.feed(text)
-            parser.close()
-        except Exception:  # malformed markup: strip what was recognised
-            pass
         kept, cursor = [], 0
-        for start, end, category in parser.finish():
+        for start, end, category in _hidden_spans(text):
             if start < cursor:
                 continue
             kept.append(text[cursor:start])
@@ -269,6 +277,12 @@ class ToolNameLures:
 class InjectionConfig(BaseModel):
     untrusted_tools: list[str] = ["fetch_url"]
     untrusted_servers: list[str] = ["weather"]  # third-party MCP servers
+    # Results longer than this are cut before scanning, and only the scanned part reaches the
+    # agent (fail closed). Measured end to end on the lab machine, 64 KiB keeps the gateway's
+    # added cost within the 20 ms budget up to 200 KB pages (p95 +17.2 ms). Beyond that the
+    # upstream transfer itself dominates: a 771 KB page adds +20.9 ms at p95, a documented
+    # exception (docs/phase4-design.md).
+    max_result_chars: int = 64 * 1024
     classifier: ClassifierConfig = ClassifierConfig()
 
 
@@ -292,6 +306,7 @@ class ScanResult:
     classifier: dict[str, Any] | None = None
     error: str | None = None
     visible_flagged: bool = False
+    truncated: dict[str, int] | None = None  # original_chars / kept_chars, if cut to the cap
 
     @property
     def flagged(self) -> bool:
@@ -305,6 +320,8 @@ class ScanResult:
     def action(self) -> str:
         if self.withhold:
             return "withheld"
+        if self.truncated:
+            return "truncated"
         return "stripped" if self.stripped else "passed"
 
     def record(self) -> dict[str, Any]:
@@ -323,7 +340,22 @@ class ScanResult:
             body["classifier"] = self.classifier
         if self.error is not None:
             body["error"] = self.error
+        if self.truncated is not None:
+            body["truncated"] = self.truncated
         return body
+
+
+def _cap(texts: list[str], limit: int) -> tuple[dict[str, str], dict[str, int] | None]:
+    """Cut distinct strings so their total length fits `limit`, in order. A hidden element cut
+    in half stays hidden to the end (strip_hidden treats an unclosed hidden element that way)."""
+    total = sum(map(len, texts))
+    if total <= limit:
+        return {t: t for t in texts}, None
+    cut, left = {}, limit
+    for t in texts:
+        cut[t] = t[:left]
+        left -= len(cut[t])
+    return cut, {"original_chars": total, "kept_chars": limit}
 
 
 class ResultScanner:
@@ -352,15 +384,21 @@ class ResultScanner:
         """Strip each text, then judge the result as a whole. Returns the visible texts."""
         # A result often carries the same string twice (MCP servers mirror their text block in
         # structured content). Every copy is stripped; each distinct string is counted once.
-        unique = {t: strip_hidden(t) for t in dict.fromkeys(texts)}
+        cut, truncated = _cap(list(dict.fromkeys(texts)), self.config.max_result_chars)
+        unique = {t: strip_hidden(cut[t]) for t in cut}
+        if truncated:
+            note = f"\n[AgentGuard: result cut to {self.config.max_result_chars // 1024} KiB]"
+            for t in unique:
+                if cut[t] != t:
+                    unique[t].visible += note
         visible = [unique[t].visible for t in texts]
         removed = [r for s in unique.values() for r in s.removed]
-        result = ScanResult(untrusted=self.is_untrusted(tool, server))
+        result = ScanResult(untrusted=self.is_untrusted(tool, server), truncated=truncated)
         for category, _ in removed:
             result.stripped[category] = result.stripped.get(category, 0) + 1
         hidden_payload = "\n".join(c for cat, c in removed if cat != "zero-width" and c)
         result.stripped_content = hidden_payload
-        seen = "\n".join(visible)
+        seen = "\n".join(unique[t].visible for t in unique)  # each distinct string once
 
         hidden_hits = self.vigil.match(hidden_payload) + self.lures.match(hidden_payload)
         visible_vigil = self.vigil.match(seen)

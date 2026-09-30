@@ -92,10 +92,14 @@ def test_benign_pages_are_never_withheld_or_taint(name):
     assert not result.withhold and not result.taint and result.findings == []
 
 
-def test_the_real_page_keeps_its_visible_text():
+def test_the_real_page_is_cut_to_the_cap_and_keeps_its_visible_text():
+    """The 767 KB article is longer than the scan cap: only its first 64 KiB is scanned and
+    passed on, the receipt says so, and it is still neither withheld nor tainted."""
     visible, result = scan(BENIGN_PAGES["wikipedia_tomato.html"])
-    assert result.action == "stripped" and "<!--" not in visible
-    assert visible.lower().count("tomato") > 100  # the article itself is still there
+    assert result.action == "truncated" and not result.withhold and not result.taint
+    assert result.record()["truncated"]["kept_chars"] == 64 * 1024
+    assert "<!--" not in visible and visible.lower().count("tomato") > 20
+    assert visible.endswith("KiB]")  # the agent is told the result was cut
 
 
 # --- stripping -----------------------------------------------------------------------------------
@@ -118,6 +122,63 @@ def test_hidden_content_is_stripped(markup, category):
     stripped = strip_hidden(markup)
     assert category in [c for c, _ in stripped.removed]
     assert "words" not in stripped.visible
+
+
+def _equivalence_inputs():
+    inputs = dict(BENIGN_PAGES, attack=ATTACK_PAGE)
+    page = BENIGN_PAGES["wikipedia_tomato.html"]
+    inputs.update({f"tomato {kb} KB": page[: kb * 1024] for kb in (2, 10, 30, 60, 200)})
+    inputs.update({f"deepset {i}": r["text"] for i, r in enumerate(DEEPSET)})
+    inputs.update(
+        {
+            "nested": 'a<div style="display:none">x<span hidden>y</span>z</div>b',
+            "unclosed": 'keep<div style="display:none">never closed',
+            "class rule": '<style>.x { display: none }</style><span class="x">w</span>',
+            "comment": "before<!-- some words here -->after",
+            "json with <": '{"note": "1 < 2 and 3 > 2"}',
+            "script": '<script>var s = "<div style=display:none>";</script><p>ok</p>',
+        }
+    )
+    return inputs
+
+
+def test_fast_tokenizer_finds_the_same_spans_as_html_parser():
+    """The gateway's tokenizer must match the original html.parser version exactly."""
+    from agentguard.guards.result_scan import _hidden_spans
+    from tests.reference_hidden_spans import reference_spans
+
+    diffs = [k for k, t in _equivalence_inputs().items() if _hidden_spans(t) != reference_spans(t)]
+    assert diffs == []
+
+
+def test_non_html_text_is_left_byte_identical():
+    text = '{"note": "1 < 2 and 3 > 2", "x": [1, 2]}'
+    assert strip_hidden(text).visible == text
+
+
+def test_results_under_the_cap_are_not_cut():
+    _, result = scan(BENIGN_PAGES["benign_page.html"])
+    assert result.truncated is None and "truncated" not in result.record()
+
+
+def test_the_cap_counts_a_duplicated_string_once():
+    page = BENIGN_PAGES["wikipedia_tomato.html"]
+    visible, result = scanner().scan("fetch_url", "web", [page, page])
+    assert visible[0] == visible[1]
+    assert result.truncated == {"original_chars": len(page), "kept_chars": 64 * 1024}
+
+
+def test_a_hidden_element_cut_by_the_cap_stays_hidden():
+    """Fail closed at the boundary: an element that opens hidden before the cap and would close
+    after it is treated as hidden to the end."""
+    head = "<p>" + "visible words " * 10 + "</p>"
+    hidden = '<div style="display:none">' + "x" * 200 + "</div><p>after</p>"
+    config = InjectionConfig(max_result_chars=len(head) + 50)
+    visible, result = ResultScanner(config, gateway_tool_names()).scan(
+        "fetch_url", "web", [head + hidden]
+    )
+    assert visible[0].startswith(head) and "x" * 10 not in visible[0]
+    assert result.truncated and result.stripped.get("css-hidden-text") == 1
 
 
 def test_nested_hidden_elements_are_removed_once_as_a_whole():

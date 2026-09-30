@@ -220,3 +220,46 @@ The clock therefore bounds the cost, while the fact limit gives a deterministic 
 hit is reported with its own reason, `authorizer-limit`, never as a missing right (`rights`).
 Tests: `test_an_exploding_appended_rule_is_denied_by_the_fact_limit_not_the_clock` and
 `test_hitting_the_time_limit_denies_and_says_why`.
+
+## Latency with stripping, and the result size cap (2026-09-30)
+
+End-to-end `fetch_url` latency, direct against through the gateway, on the benign Wikipedia
+"Tomato" article cut to each size. Hardware: i5-1345U under WSL.
+
+**Before:** html.parser stripping, no cap. The gateway added more than 20 ms beyond about
+60 KB: 200 KB added +46.1 / +51.9 ms, and the full 771 KB page +165.5 / +170.0 ms (p50 / p95).
+Profiling the full page put 88 of the 121 ms of scanning in Python's html.parser.
+
+**Changes:**
+
+- **A faster tokenizer:** stripping now uses a small tokenizer on the C regex engine. It is
+  2.7× faster, and finds identical spans to html.parser on 219 inputs. A test keeps the old
+  parser as a reference (`tests/reference_hidden_spans.py`).
+  - A C DOM parser (selectolax) was faster still, at 15.5 ms on the full page, but was
+    rejected. It re-serializes the whole document, and rewrote a JSON fragment into
+    `<html><body>…&lt;…`.
+- **No doubled scanning:** Vigil and the tool-name lures scan each distinct string once. They
+  previously scanned the text and structured copies of the same page both times.
+- **A result size cap** (`guards.injection.max_result_chars`, 64 KiB), which fails closed:
+  - A longer result is cut to the cap before scanning, and the agent receives only the scanned
+    part, with a note that it was cut.
+  - The receipt records the original and kept sizes (`truncated`).
+  - A hidden element cut in half by the cap stays hidden.
+
+**After** (added over direct; 100 samples per size, 5 runs):
+
+| Page | Added p50 / p95 |
+| --- | --- |
+| 2 KB | +4.8 / +6.4 ms |
+| 10 KB | +5.7 / +2.8 ms |
+| 30 KB | +9.1 / +11.6 ms |
+| 60 KB | +10.9 / +11.1 ms |
+| 128 KB | +12.0 / +17.4 ms |
+| 200 KB | +14.8 / +17.2 ms |
+| 771 KB | **+18.3 / +20.9 ms** |
+
+**Documented exception.** Results beyond roughly 500 KB exceed the 20 ms budget at p95, by
+about 1 ms at 771 KB. The cause isn't scanning, since only 64 KiB is scanned. The gateway has
+to receive the whole result from the upstream tool before it can cut it, and MCP servers send
+it twice (text plus structured content). A smaller gateway cap can't remove that; only
+bounding the upstream response size would.
