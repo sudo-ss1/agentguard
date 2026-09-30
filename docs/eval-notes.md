@@ -45,10 +45,16 @@ text is still in what the agent receives.
 | --- | --- | --- | --- | --- | --- |
 | deepset | positive | 60 | raw / visible | 0/60 (0%; 0–6%) | 60/60 (100%; 94–100%) |
 | deepset | positive | 60 | hidden | 0/60 (0%; 0–6%) | 0/60 (0%; 0–6%) |
-| deepset | negative | 56 | any | 0/56 (0%; 0–6%) false positives | 56/56 raw / visible; 0/56 hidden |
+| deepset | negative | 56 | any | 0/56 (0%; 0–6%) false positives ¹ | 56/56 raw / visible; 0/56 hidden |
 | garak, all 9 probes | positive | 2,216 | raw / visible | 232/2,216 (10.5%; 9.2–11.8%) | 1,984/2,216 (89.5%) |
 | garak, all 9 probes | positive | 2,216 | hidden | 232/2,216 (10.5%; 9.2–11.8%) | 0/2,216 (0%; 0–0.2%) |
 
+- ¹ With n = 56, the false-positive interval is wide: its upper bound is 6.4%. Earlier
+  real-page tests support a low rate but aren't pooled with it here
+  (`docs/phase4-design.md`, "Results"). A real 767 KB Wikipedia article ("Tomato") gave
+  0 withheld and 0 tainted, with 37 hidden items stripped. The 200-row deepset train sample
+  gave 0 withheld and 0 tainted. Of those rows, 163 are benign: 0/163 false positives, with
+  a 95% CI of 0–2.2%. The other 37 are injections, and none was detected.
 - Every garak detection came from one Vigil rule, `InstructionBypass`, in three probes:
   TranslationEnFr 85/256, TranslationEnZh 91/256 and Whois 56/168. The other six probes had
   0 detections.

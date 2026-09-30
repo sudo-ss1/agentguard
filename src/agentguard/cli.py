@@ -408,6 +408,9 @@ def eval_llm(
     approval_timeout: Annotated[
         float, typer.Option(help="Seconds before an unanswered approval is denied.")
     ] = 10.0,
+    trial_timeout: Annotated[
+        float, typer.Option(help="Wall-clock limit per trial, in seconds; flagged if hit.")
+    ] = 1200.0,
 ) -> None:
     """Run agent trials through a local guarded lab and print a markdown table.
 
@@ -446,15 +449,31 @@ def eval_llm(
         "cases": [c.index for c in cases],
         "conditions": [c.name for c in conditions],
         "approval_timeout_s": approval_timeout,
+        "trial_timeout_s": trial_timeout,
     }
     (run_dir / "settings.json").write_text(json.dumps(settings, indent=2))
     typer.echo(f"run log: {run_dir}", err=True)
 
+    done: list[trials.Trial] = []
+    total = len(cases) * len(conditions)
+    note = (
+        f"\n\nApproval timeout during these trials: {approval_timeout:g} s "
+        "(the gateway's default is 120 s)."
+    )
+
+    def write_results(final: bool) -> None:
+        table = trials.trials_markdown(trials.summarize_trials(done, conditions)) + note
+        if not final:
+            table = f"Partial: {len(done)} of {total} trials done.\n\n" + table
+        (run_dir / "results.md").write_text(table + "\n")
+
     def progress(t: "trials.Trial") -> None:
+        done.append(t)
+        write_results(final=False)
         notes = [
             x
             for x in (
-                t.agent_error and "agent error",
+                t.agent_error and ("timed out" if t.timed_out else "agent error"),
                 t.approval_undecided and "approval timeout/error",
             )
             if x
@@ -467,15 +486,17 @@ def eval_llm(
 
     model = get_chat_model(s)
     system_prompt = load_config(s.agent_config_path).system_prompt
-    results = asyncio.run(
+    asyncio.run(
         trials.run_conditions(
-            cases, conditions, model, system_prompt, run_dir, approval_timeout, progress
+            cases,
+            conditions,
+            model,
+            system_prompt,
+            run_dir,
+            approval_timeout,
+            progress,
+            trial_timeout,
         )
     )
-    table = trials.trials_markdown(trials.summarize_trials(results, conditions))
-    table += (
-        f"\n\nApproval timeout during these trials: {approval_timeout:g} s "
-        "(the gateway's default is 120 s)."
-    )
-    typer.echo(table)
-    (run_dir / "results.md").write_text(table + "\n")
+    write_results(final=True)
+    typer.echo((run_dir / "results.md").read_text())

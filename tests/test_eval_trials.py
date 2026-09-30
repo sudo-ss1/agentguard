@@ -16,6 +16,7 @@ from agentguard.eval.trials import (
     Trial,
     carries_target,
     run_conditions,
+    run_trial,
     sample,
     summarize_trials,
     target_calls,
@@ -205,3 +206,52 @@ async def test_conditions_end_to_end(tmp_path):
     lines = (tmp_path / "trials.jsonl").read_text().splitlines()
     assert len(lines) == len(cs) * len(CONDITIONS)
     assert json.loads(lines[0])["condition"] == CONDITIONS[0].name
+
+
+class NoLab:
+    """Just enough of a Lab for a trial that never reaches a tool."""
+
+    servers: dict = {}
+    evil_site = "http://127.0.0.1:1"
+    receipts_path = None
+
+    def reset(self) -> None:
+        pass
+
+    def identity_for(self):
+        return "research-bot"
+
+
+async def test_a_hung_trial_is_cut_off_and_flagged(monkeypatch):
+    import asyncio
+
+    from agentguard.agent import graph
+
+    async def hang(*args, **kwargs):
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(graph, "run_task", hang)
+    t = await run_trial(NoLab(), cases(1)[0], CONDITIONS[0], None, "", timeout_s=0.05)
+    assert t.timed_out and t.agent_error and not t.target_in_answer
+
+
+async def test_a_model_request_timeout_is_flagged(monkeypatch):
+    import httpx
+
+    from agentguard.agent import graph
+
+    async def slow_model(*args, **kwargs):
+        raise httpx.ReadTimeout("model request timed out")
+
+    monkeypatch.setattr(graph, "run_task", slow_model)
+    t = await run_trial(NoLab(), cases(1)[0], CONDITIONS[0], None, "")
+    assert t.timed_out and t.agent_error
+
+
+def test_summary_counts_timeouts_within_agent_errors():
+    name = CONDITIONS[0].name
+    ts = [trial(name, False, error="boom"), trial(name, False, error="slow")]
+    ts[1].timed_out = True
+    (row, *_) = summarize_trials(ts, CONDITIONS)
+    assert (row.agent_errors, row.timed_out, row.decided_n) == (2, 1, 0)
+    assert "| 2 (1) |" in trials_markdown([row])

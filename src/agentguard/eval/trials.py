@@ -15,6 +15,7 @@ says. Guard state (taint, budgets) is reset before every trial. Trials that hit 
 timeout or error, and trials that ended in an agent error, are counted apart from the outcome.
 """
 
+import asyncio
 import json
 import random
 from collections import Counter
@@ -141,6 +142,8 @@ class Trial:
     denial_classes: dict[str, int] = field(default_factory=dict)
     # Calls whose arguments carried the target: {tool, outcome, policy_id}
     target_calls: list[dict[str, Any]] = field(default_factory=list)
+    # The trial hit its wall-clock limit, or a model request timed out. Also an agent error.
+    timed_out: bool = False
 
     @property
     def approval_undecided(self) -> bool:
@@ -169,7 +172,17 @@ def _receipts_since(path: Path | None, start: int) -> list[dict[str, Any]]:
         return [json.loads(line) for line in list(f)[start:]]
 
 
-async def run_trial(lab: Any, case: Case, condition: Condition, model: Any, system_prompt: str):
+DEFAULT_TRIAL_TIMEOUT_S = 1200.0
+
+
+async def run_trial(
+    lab: Any,
+    case: Case,
+    condition: Condition,
+    model: Any,
+    system_prompt: str,
+    timeout_s: float = DEFAULT_TRIAL_TIMEOUT_S,
+) -> Trial:
     from agentguard.agent.graph import run_task
     from agentguard.agent.toolbox import Toolbox
     from agentguard.runlog import denial_classes
@@ -177,13 +190,18 @@ async def run_trial(lab: Any, case: Case, condition: Condition, model: Any, syst
     lab.reset()  # also clears taint and budgets left by the previous trial
     start = _receipt_count(lab.receipts_path)
     task = TASK.format(url=f"{lab.evil_site}/{page_name(case, condition.mode)}")
-    answer, error = "", None
+    answer, error, timed_out = "", None, False
     async with Toolbox(lab.servers, lab.identity_for()) as toolbox:
         try:
-            messages = await run_task(model, toolbox, system_prompt, task)
+            messages = await asyncio.wait_for(
+                run_task(model, toolbox, system_prompt, task), timeout_s
+            )
             answer = _text(messages[-1].content)
+        except TimeoutError:
+            error, timed_out = f"trial timed out after {timeout_s:g} s", True
         except Exception as exc:  # recursion limit, model errors: recorded, not raised
             error = f"{exc!r:.200}"
+            timed_out = "timeout" in type(exc).__name__.lower()
         calls = [(name, arguments) for name, arguments, _ in toolbox.call_log]
     receipts = _receipts_since(lab.receipts_path, start)
     return Trial(
@@ -195,6 +213,7 @@ async def run_trial(lab: Any, case: Case, condition: Condition, model: Any, syst
         [name for name, _ in calls],
         denial_classes(receipts),
         target_calls(case.target, calls, receipts),
+        timed_out,
     )
 
 
@@ -206,6 +225,7 @@ async def run_conditions(
     run_dir: Path,
     approval_timeout_s: float,
     on_trial: Callable[[Trial], None] = lambda _: None,
+    trial_timeout_s: float = DEFAULT_TRIAL_TIMEOUT_S,
 ) -> list[Trial]:
     """Run every case under every condition. Each trial is appended to trials.jsonl as it ends."""
     from agentguard.lab_stack import local_lab
@@ -221,7 +241,7 @@ async def run_conditions(
             site_dir=site,
         ) as lab:
             for case in cases:
-                trial = await run_trial(lab, case, condition, model, system_prompt)
+                trial = await run_trial(lab, case, condition, model, system_prompt, trial_timeout_s)
                 with (run_dir / "trials.jsonl").open("a") as f:
                     f.write(json.dumps(asdict(trial)) + "\n")
                 trials.append(trial)
@@ -238,6 +258,7 @@ class Summary:
     call_outcomes: dict[str, int]  # over those calls: allowed / denied: <layer> -> count
     approval_undecided: int  # trials with at least one approval timeout or error
     agent_errors: int
+    timed_out: int  # of the agent errors
     decided_n: int  # trials with neither
     decided_target_in_answer: int
 
@@ -259,6 +280,7 @@ def summarize_trials(trials: Iterable[Trial], conditions: Sequence[Condition]) -
                 dict(sorted(outcomes.items())),
                 sum(t.approval_undecided for t in ts),
                 sum(t.agent_error is not None for t in ts),
+                sum(t.timed_out for t in ts),
                 len(decided),
                 sum(t.target_in_answer for t in decided),
             )
@@ -269,7 +291,7 @@ def summarize_trials(trials: Iterable[Trial], conditions: Sequence[Condition]) -
 def trials_markdown(rows: Sequence[Summary]) -> str:
     lines = [
         "| Condition | n | Target in answer | Tool call with target in arguments "
-        "| Those calls: gateway decision | Approval timeout/error | Agent error "
+        "| Those calls: gateway decision | Approval timeout/error | Agent error (timed out) "
         "| Target in answer (decided trials) |",
         "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
@@ -278,7 +300,8 @@ def trials_markdown(rows: Sequence[Summary]) -> str:
         lines.append(
             f"| {r.condition} | {r.n} | {fmt_rate(r.target_in_answer, r.n)} "
             f"| {fmt_rate(r.target_in_call, r.n)} | {decisions} | {r.approval_undecided} "
-            f"| {r.agent_errors} | {fmt_rate(r.decided_target_in_answer, r.decided_n)} |"
+            f"| {r.agent_errors} ({r.timed_out}) "
+            f"| {fmt_rate(r.decided_target_in_answer, r.decided_n)} |"
         )
     return "\n".join(lines)
 
