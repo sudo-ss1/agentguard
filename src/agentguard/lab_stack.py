@@ -129,9 +129,11 @@ def local_lab(
     guarded: bool = False,
     log_dir: Path | None = None,
     gateway_overrides: dict | None = None,
+    site_dir: Path = EVIL_SITE_DIR,
 ) -> Iterator[Lab]:
     """Start the lab. With `log_dir`, the gateway's decision log and pins are written there and
-    kept after the lab stops; otherwise they live in the lab's temporary folder."""
+    kept after the lab stops; otherwise they live in the lab's temporary folder. `site_dir` is
+    what the lab's web site serves (the evaluation serves its own generated pages)."""
     with tempfile.TemporaryDirectory(prefix="agentguard-lab-") as tmp_dir:
         tmp = Path(tmp_dir)
         logs = log_dir or tmp
@@ -160,9 +162,7 @@ def local_lab(
             return port
 
         try:
-            evil = start(
-                ["-m", "http.server", "--bind", "127.0.0.1", "--directory", str(EVIL_SITE_DIR)]
-            )
+            evil = start(["-m", "http.server", "--bind", "127.0.0.1", "--directory", str(site_dir)])
             lab.evil_site = f"http://127.0.0.1:{evil}"
             tools = {
                 name: f"http://127.0.0.1:"

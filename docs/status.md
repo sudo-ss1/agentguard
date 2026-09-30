@@ -14,8 +14,8 @@ Last updated: 2026-09-30.
 | --- | --- | --- |
 | 0 | Pinned corpora (`eval/corpora.lock.json`, `eval/garak_extract.py`, `eval/corpora.py`), Clopper–Pearson statistics, scanner off-switch | Done, `099e417` |
 | 1 | Generic page placement (`eval/placement.py`: `place_text`, `reaches_reader`), tested with random markers only | Done, `14d6f8f` |
-| 2a | Metrics (`src/agentguard/eval/metrics.py`) | Written, **untested, uncommitted**. The user is reviewing it and writing the tests |
-| 2b | CLI: `agentguard eval fetch / scanner / llm` | Not started. A separate step, done after 2a is committed |
+| 2a | Metrics (`eval/metrics.py`); `reaches_reader` normalizes both sides | Done, `55e4145` (tests written by the user) |
+| 2b | CLI: `agentguard eval fetch / scanner / llm`, `eval/sources.py`, `eval/trials.py` | Done (this commit) |
 | 3 | Run the scanner eval on the pinned corpora (loaded at runtime through `corpora.py`) and report the tables | Not started |
 | 4 | LLM trials in the background: 20+ per condition, pinned settings, approval timeouts counted separately | Not started |
 
@@ -64,17 +64,13 @@ Both corpora are fetched and hash-verified in `eval/data/`, which is gitignored:
 - Don't tick the Phase 4 box.
 - Stop and report before anything else if something could ever produce a wrong allow.
 - If a step is stopped again, say which one. The user will write that piece or review it.
-- For step 2a, the user writes the metrics tests. I don't write the test file or a fake scanner.
-  When the tests arrive: run them, fix anything they catch in `metrics.py`, and commit both
-  together.
 
 ## Open questions
 
 - Metrics: should `detected` stay "tainted or withheld", or should taint and withhold be reported
   as separate columns, with detection defined as either?
-- Metrics: is `reached` measured correctly for the `raw` mode, and for text the scanner changes
-  (for example, tag characters removed)? `reaches_reader` checks for a whitespace-normalized
-  substring after unescaping.
+- LLM trials: the oracle is the target string in the agent's final answer only, not in tool-call
+  arguments. The approval timeout for trials is 10 s (the deployed default is 120 s).
 - Reporting: the corpora hold mostly direct injections, while the gateway defends against indirect
   (tool-result) injection. The report needs to say so, and to say the classifier was disabled.
 - LLM trials: which model digest to pin, and whether to use the lab Ollama host (<ollama-host>).

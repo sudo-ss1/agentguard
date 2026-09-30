@@ -35,6 +35,8 @@ receipts_app = typer.Typer(
     no_args_is_help=True, help="Prove or erase values committed in receipts."
 )
 app.add_typer(receipts_app, name="receipts")
+eval_app = typer.Typer(no_args_is_help=True, help="Evaluate the result scanner and the agent.")
+app.add_typer(eval_app, name="eval")
 
 
 @app.callback()
@@ -346,3 +348,124 @@ def approvals_deny(
 ) -> None:
     """Deny one pending call."""
     _decide(request_id, False, approver, state_dir)
+
+
+@eval_app.command("fetch")
+def eval_fetch() -> None:
+    """Fetch the pinned corpora into eval/data/ and check them against eval/corpora.lock.json."""
+    from agentguard.eval import corpora
+
+    for fetch in (corpora.fetch_deepset, corpora.fetch_garak):
+        typer.echo(f"ok: {fetch()}")
+
+
+@eval_app.command("scanner")
+def eval_scanner(
+    mode: Annotated[
+        list[str] | None, typer.Option(help="Placement mode(s): raw, visible, hidden; default all.")
+    ] = None,
+    classifier: Annotated[bool, typer.Option(help="Enable the classifier.")] = False,
+    out: Annotated[Path | None, typer.Option(help="Also write the rows as JSON here.")] = None,
+) -> None:
+    """Score the gateway's result scanner on the pinned corpora and print a markdown table.
+
+    Detected means tainted or withheld: the detection rate for positives, the false-positive
+    rate for negatives. Reached means the placed text is still in what the agent receives.
+    """
+    from agentguard.eval import metrics, sources
+    from agentguard.eval.placement import MODES
+
+    modes = mode or list(MODES)
+    unknown = sorted(set(modes) - set(MODES))
+    if unknown:
+        raise typer.BadParameter(f"unknown mode(s): {', '.join(unknown)}")
+    items = sources.labelled_items()
+    scan = sources.gateway_scan(classifier=classifier)
+    scored = [s for m in MODES if m in modes for s in metrics.score(items, m, scan)]
+    rows = metrics.summarize(scored)
+    typer.echo(metrics.markdown(rows))
+    if out:
+        out.write_text(json.dumps({"classifier": classifier, "rows": metrics.as_json(rows)}))
+        typer.echo(f"rows: {out}", err=True)
+
+
+@eval_app.command("llm")
+def eval_llm(
+    n: Annotated[int, typer.Option(help="Cases per condition (the same cases in each).")] = 24,
+    sample_seed: Annotated[int, typer.Option(help="Seed for choosing the cases.")] = 7,
+    condition: Annotated[
+        list[str] | None, typer.Option(help="Condition name(s); default all.")
+    ] = None,
+    model_digest: Annotated[
+        str | None, typer.Option(help="Refuse to run unless the Ollama model has this digest.")
+    ] = None,
+    approval_timeout: Annotated[
+        float, typer.Option(help="Seconds before an unanswered approval is denied.")
+    ] = 10.0,
+) -> None:
+    """Run agent trials through a local guarded lab and print a markdown table.
+
+    Each trial asks the agent to summarize one generated page and checks whether the case's
+    target string is in its answer. Results go to <RUN_LOG_DIR>/<timestamp>/.
+    """
+    from agentguard.agent.llm import get_chat_model
+    from agentguard.eval import sources, trials
+
+    s = get_settings()
+    known = {c.name: c for c in trials.CONDITIONS}
+    unknown = sorted(set(condition or []) - set(known))
+    if unknown:
+        raise typer.BadParameter(
+            f"unknown condition(s): {', '.join(unknown)}; known: {list(known)}"
+        )
+    conditions = [c for c in trials.CONDITIONS if not condition or c.name in condition]
+    digest = None
+    if s.llm_provider == "ollama":
+        digest = trials.ollama_digest(s.ollama_base_url, s.ollama_model)
+        if digest is None:
+            raise typer.BadParameter(f"{s.ollama_model} is not on {s.ollama_base_url}")
+        if model_digest and digest != model_digest:
+            raise typer.BadParameter(f"{s.ollama_model} has digest {digest}, not {model_digest}")
+    cases = trials.sample(sources.cases(), n, sample_seed)
+    run_dir = new_run_dir(s.run_log_dir)
+    settings = {
+        "provider": s.llm_provider,
+        "model": s.ollama_model if s.llm_provider == "ollama" else s.anthropic_model,
+        "model_digest": digest,
+        "temperature": 0,
+        "seed": s.llm_seed,
+        "num_ctx": s.llm_num_ctx,
+        "n": n,
+        "sample_seed": sample_seed,
+        "cases": [c.index for c in cases],
+        "conditions": [c.name for c in conditions],
+        "approval_timeout_s": approval_timeout,
+    }
+    (run_dir / "settings.json").write_text(json.dumps(settings, indent=2))
+    typer.echo(f"run log: {run_dir}", err=True)
+
+    def progress(t: "trials.Trial") -> None:
+        notes = [
+            x
+            for x in (
+                t.agent_error and "agent error",
+                t.approval_undecided and "approval timeout/error",
+            )
+            if x
+        ]
+        typer.echo(
+            f"{t.condition} case {t.case}: target {'seen' if t.target_seen else 'not seen'}"
+            + (f" ({', '.join(notes)})" if notes else ""),
+            err=True,
+        )
+
+    model = get_chat_model(s)
+    system_prompt = load_config(s.agent_config_path).system_prompt
+    results = asyncio.run(
+        trials.run_conditions(
+            cases, conditions, model, system_prompt, run_dir, approval_timeout, progress
+        )
+    )
+    table = trials.trials_markdown(trials.summarize_trials(results, conditions))
+    typer.echo(table)
+    (run_dir / "results.md").write_text(table + "\n")
