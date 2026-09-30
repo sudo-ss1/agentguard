@@ -343,3 +343,12 @@ async def test_benign_page_reaches_the_agent_untouched(gateway):
     assert not result.is_error and result.content[0].text == page
     assert not gateway.taint.is_tainted(FETCHER.profile.did)
     assert receipts(gateway)[0]["result_scan"]["action"] == "passed"
+
+
+def test_scanning_can_be_switched_off_for_the_eval_control_only():
+    config = InjectionConfig(enabled=False)
+    visible, result = ResultScanner(config, gateway_tool_names()).scan(
+        "fetch_url", "web", [ATTACK_PAGE]
+    )
+    assert visible == [ATTACK_PAGE] and not result.taint and result.action == "passed"
+    assert InjectionConfig().enabled  # on by default

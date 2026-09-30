@@ -1,0 +1,19 @@
+{
+  "deepset": {
+    "repo": "deepset/prompt-injections",
+    "revision": "4f61ecb038e9c3fb77e21034b22511b523772cdd",
+    "file": "data/test-00000-of-00001-701d16158af87368.parquet",
+    "sha256": "39ac797cabc157eeed58435a08593b2952bb6cb16fc394a2d383f447cc7b246e",
+    "license": "Apache-2.0",
+    "rows": 116
+  },
+  "garak": {
+    "source": "https://github.com/NVIDIA/garak/archive/refs/tags/v0.17.0.tar.gz",
+    "tarball_sha256": "91d09e7bcc339bd6bc983e72ae8e45d73eb9bacf1263ef8e6ae7b72db90b90f1",
+    "license": "Apache-2.0",
+    "probes": "garak.probes.latentinjection, the default (non-Full) variants",
+    "generation": "eval/garak_extract.py with PYTHONHASHSEED=0 and seed 7",
+    "extraction_sha256": "85361f159a10216e61f03bae27f98ec24e149fe339834542d8885abac2b5a4e7",
+    "prompts": 2216
+  }
+}

@@ -30,6 +30,9 @@ dependencies = [
 anthropic = ["langchain-anthropic>=0.3"]
 # Only for building the int8 injection-classifier model (`agentguard models build`), not at runtime.
 models = ["onnx>=1.16"]
+# Only for the scanner evaluation (`agentguard eval`): reading deepset's Parquet files, and
+# splitting results by language.
+eval = ["pyarrow>=15", "langdetect>=1.0.9"]
 
 [project.scripts]
 agentguard = "agentguard.cli:app"

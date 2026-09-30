@@ -275,6 +275,9 @@ class ToolNameLures:
 
 
 class InjectionConfig(BaseModel):
+    # False turns result scanning off entirely: results pass through unmodified. Only for the
+    # evaluation's control condition; never in a deployed gateway.
+    enabled: bool = True
     untrusted_tools: list[str] = ["fetch_url"]
     untrusted_servers: list[str] = ["weather"]  # third-party MCP servers
     # Results longer than this are cut before scanning, and only the scanned part reaches the
@@ -382,6 +385,8 @@ class ResultScanner:
 
     def scan(self, tool: str, server: str | None, texts: list[str]) -> tuple[list[str], ScanResult]:
         """Strip each text, then judge the result as a whole. Returns the visible texts."""
+        if not self.config.enabled:
+            return list(texts), ScanResult(untrusted=self.is_untrusted(tool, server))
         # A result often carries the same string twice (MCP servers mirror their text block in
         # structured content). Every copy is stripped; each distinct string is counted once.
         cut, truncated = _cap(list(dict.fromkeys(texts)), self.config.max_result_chars)

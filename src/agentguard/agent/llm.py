@@ -18,6 +18,7 @@ def get_chat_model(settings: Settings) -> BaseChatModel:
         base_url=settings.ollama_base_url,
         temperature=0,
         seed=settings.llm_seed,
+        num_ctx=settings.llm_num_ctx,
         # Without a timeout, a request the server drops (e.g. it restarts) hangs the run forever.
         client_kwargs={"timeout": settings.llm_timeout_s},
     )

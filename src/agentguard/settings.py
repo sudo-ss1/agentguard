@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-sonnet-5"
     llm_seed: int = 7
     llm_timeout_s: float = 300  # per model request
+    llm_num_ctx: int = 8192  # pinned context length (Ollama's default depends on the server)
 
     # Lab state: the files server sees LAB_ROOT as "/", the email stub writes OUTBOX_PATH.
     lab_root: Path = Path(".lab-state/rootfs")
