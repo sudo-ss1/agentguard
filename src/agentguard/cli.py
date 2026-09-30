@@ -379,13 +379,19 @@ def eval_scanner(
     unknown = sorted(set(modes) - set(MODES))
     if unknown:
         raise typer.BadParameter(f"unknown mode(s): {', '.join(unknown)}")
-    items = sources.labelled_items()
+    items, empty = metrics.split_empty(sources.labelled_items())
     scan = sources.gateway_scan(classifier=classifier)
     scored = [s for m in MODES if m in modes for s in metrics.score(items, m, scan)]
     rows = metrics.summarize(scored)
     typer.echo(metrics.markdown(rows))
+    groups = sorted({i.group for i in items} | set(empty))
+    typer.echo(
+        "\nLeft out (text normalizes to nothing): "
+        + ", ".join(f"{g} {empty.get(g, 0)}" for g in groups)
+    )
     if out:
-        out.write_text(json.dumps({"classifier": classifier, "rows": metrics.as_json(rows)}))
+        body = {"classifier": classifier, "left_out_empty": empty, "rows": metrics.as_json(rows)}
+        out.write_text(json.dumps(body))
         typer.echo(f"rows: {out}", err=True)
 
 

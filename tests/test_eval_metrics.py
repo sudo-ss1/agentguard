@@ -13,10 +13,10 @@ import pytest
 
 from agentguard.eval import metrics
 from agentguard.eval.metrics import Item, Row, as_json, markdown, score, summarize
-from agentguard.eval.placement import MODES
+from agentguard.eval.placement import MODES, Mode
 from agentguard.eval.stats import clopper_pearson
 
-RAW = "raw"
+RAW: Mode = "raw"
 
 
 # --- Fake scan functions: each returns (delivered, tainted, withheld) -----------------------
@@ -205,3 +205,11 @@ def test_reached_false_when_text_fully_removed() -> None:
 
     (scored,) = score([item], RAW, remove_item)
     assert not scored.reached
+
+
+def test_split_empty_leaves_out_text_that_normalizes_to_nothing() -> None:
+    kept, empty = metrics.split_empty(
+        [Item("MARKER-1", 1, "a"), Item(" \u200b\n", 1, "a"), Item("\U000e0041", 0, "b")]
+    )
+    assert [i.text for i in kept] == ["MARKER-1"]
+    assert empty == {"a": 1, "b": 1}

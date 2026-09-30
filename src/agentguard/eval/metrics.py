@@ -15,7 +15,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from agentguard.eval.placement import MODES, Mode, place_text, reaches_reader
+from agentguard.eval.placement import MODES, Mode, normalize, place_text, reaches_reader
 from agentguard.eval.stats import clopper_pearson, fmt_rate
 
 
@@ -42,6 +42,21 @@ class Scored:
 # A scan function takes a placed tool result and returns what the agent would receive, plus
 # whether the scanner tainted and whether it withheld.
 ScanFn = Callable[[str], tuple[str, bool, bool]]
+
+
+def split_empty(items: Iterable[Item]) -> tuple[list[Item], dict[str, int]]:
+    """Separate items whose text normalizes to nothing (only whitespace or invisible characters).
+
+    reaches_reader counts such text as reached whatever the scanner does, so scoring them would
+    distort the rates. They are left out and counted per group instead."""
+    kept: list[Item] = []
+    empty: dict[str, int] = {}
+    for item in items:
+        if normalize(item.text):
+            kept.append(item)
+        else:
+            empty[item.group] = empty.get(item.group, 0) + 1
+    return kept, empty
 
 
 def score(items: Iterable[Item], mode: Mode, scan: ScanFn) -> list[Scored]:

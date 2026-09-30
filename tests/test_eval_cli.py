@@ -24,6 +24,7 @@ def test_scanner_prints_a_row_per_group_mode_and_label(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.output
     table = [line for line in result.stdout.splitlines() if line.startswith("| a |")]
     assert len(table) == 6  # 3 modes x 2 labels
+    assert "Left out (text normalizes to nothing): a 0" in result.stdout
     rows = json.loads(out.read_text())["rows"]
     visible = {r["label"]: r for r in rows if r["mode"] == "visible"}
     assert visible[1]["reached"] == 3 and visible[1]["detected"] == 0  # plain markers pass
