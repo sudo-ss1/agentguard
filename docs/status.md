@@ -17,7 +17,7 @@ Last updated: 2026-09-30.
 | 2a | Metrics (`eval/metrics.py`); `reaches_reader` normalizes both sides | Done, `55e4145` (tests written by the user) |
 | 2b | CLI: `agentguard eval fetch / scanner / llm`, `eval/sources.py`, `eval/trials.py` | Done (this commit) |
 | 3 | Scanner eval on the pinned corpora, results in `docs/eval-notes.md` | Done |
-| 4 | LLM trials in the background: 20+ per condition, pinned settings, approval timeouts counted separately | Not started |
+| 4 | LLM trials, 24 per condition, pinned digest; results in `docs/eval-notes.md` | Done |
 
 Both corpora are fetched and hash-verified in `eval/data/`, which is gitignored:
 
@@ -75,7 +75,6 @@ Both corpora are fetched and hash-verified in `eval/data/`, which is gitignored:
 
 - Metrics: should `detected` stay "tainted or withheld", or should taint and withhold be reported
   as separate columns, with detection defined as either?
-- LLM trials: which model digest to pin.
 - Reporting: the corpora hold mostly direct injections, while the gateway defends against indirect
   (tool-result) injection. The report needs to say so, and to say the classifier was disabled.
 - LLM trials: which model digest to pin, and whether to use the lab Ollama host (<ollama-host>).
