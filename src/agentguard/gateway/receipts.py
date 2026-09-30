@@ -23,6 +23,7 @@ from typing import Any
 
 from agentguard.gateway.checks import CallContext, Decision
 from agentguard.gateway.commitments import SaltStore
+from agentguard.ledger.canonical import CanonicalError, jcs
 
 # Attribute values that are coarse enough to keep in the clear.
 CLEAR_ATTRIBUTES = frozenset(
@@ -43,9 +44,29 @@ CLEAR_ATTRIBUTES = frozenset(
 
 
 def args_digest(arguments: dict[str, Any]) -> str:
-    """The receipt's argument hash. Receipts never store argument values themselves."""
+    """The receipt's argument hash: SHA-256 of the arguments in RFC 8785 canonical JSON, so it
+    is reproducible anywhere. Receipts never store argument values themselves.
+
+    Raises CanonicalError for arguments RFC 8785 can't represent exactly (e.g. integers beyond
+    2**53); the gateway then denies the call rather than record an ambiguous hash."""
+    return hashlib.sha256(jcs(arguments)).hexdigest()
+
+
+def legacy_args_digest(arguments: dict[str, Any]) -> str:
+    """The argument hash used before Phase 5 (sorted-key json.dumps). Kept for reading run logs
+    recorded before 2026-10-01; new receipts never use it."""
     canonical = json.dumps(arguments, sort_keys=True, default=str).encode()
     return hashlib.sha256(canonical).hexdigest()
+
+
+def args_match(arguments: dict[str, Any], digest: str) -> bool:
+    """Whether `digest` is the argument hash of `arguments`, in either format."""
+    try:
+        if args_digest(arguments) == digest:
+            return True
+    except CanonicalError:
+        pass
+    return legacy_args_digest(arguments) == digest
 
 
 def path_class(path: str) -> str:

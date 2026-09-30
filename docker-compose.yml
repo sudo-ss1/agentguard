@@ -67,9 +67,12 @@ services:
     command: ["python", "-m", "agentguard.gateway", "--config", "/app/config/gateway.yaml", "--port", "8000"]
     environment:
       GUARD_STATE_DIR: /gateway-state/guards
-    # receipt-salts: only the gateway (and an auditor via `docker compose exec gateway`).
+    # receipt-salts and ledger-key: only the gateway (and an auditor via
+    # `docker compose exec gateway`). ledger: receipts, written only by the gateway.
+    # ledger-roots: signed checkpoints and the ledger's public key.
     volumes: [lab-state:/lab-state, gateway-trust:/gateway-trust:ro, receipt-salts:/receipt-salts,
-              gateway-state:/gateway-state]
+              gateway-state:/gateway-state, ledger:/ledger, ledger-key:/ledger-key,
+              ledger-roots:/ledger-roots]
     networks: [lab]
     depends_on:
       files: {condition: service_started}
@@ -102,9 +105,12 @@ services:
       LAB_ROOT: /lab-state/rootfs
       OUTBOX_PATH: /lab-state/outbox.jsonl
       RUGPULL_FLAG: /lab-state/rugpull.flag
-      RECEIPTS_PATH: /lab-state/receipts.jsonl
+      RECEIPTS_PATH: /ledger/receipts.jsonl
+      LEDGER_ROOTS_DIR: /ledger-roots
       CREDENTIALS_DIR: /agent-creds
-    volumes: [lab-state:/lab-state, agent-creds:/agent-creds:ro]
+    # The harness reads receipts and checkpoints; it can never write them or read the key.
+    volumes: [lab-state:/lab-state, agent-creds:/agent-creds:ro, ledger:/ledger:ro,
+              ledger-roots:/ledger-roots:ro]
     networks: [lab, internet]
     depends_on:
       ollama: {condition: service_healthy, required: false}
@@ -130,3 +136,6 @@ volumes:
   gateway-trust: {}
   receipt-salts: {}
   gateway-state: {}  # kill list and guard reset epoch: gateway only
+  ledger: {}        # receipts: gateway read-write, harness read-only
+  ledger-key: {}    # the receipt-signing key: gateway only
+  ledger-roots: {}  # checkpoints and the public key: gateway read-write, harness read-only

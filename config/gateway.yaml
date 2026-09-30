@@ -9,8 +9,13 @@ agents:
     tools: [read_file, write_file, list_dir, delete_file, fetch_url, send_email, get_weather]
 policy_dir: /app/config/policies
 pins_path: /lab-state/pins.json
-receipts_path: /lab-state/receipts.jsonl
+# The audit ledger (Phase 5). Receipts are on their own volume: the gateway writes it, the
+# agent container (the harness) may only read it. The signing key's volume is gateway-only.
+receipts_path: /ledger/receipts.jsonl
 salts_path: /receipt-salts/salts.jsonl   # own volume, mounted only into the gateway
+ledger:
+  key_dir: /ledger-key
+  roots_dir: /ledger-roots
 refresh_interval_s: 1
 # Public trust material (issuer DID, Biscuit root public key), written by `agentguard provision`.
 identity_file: /gateway-trust/identity.json

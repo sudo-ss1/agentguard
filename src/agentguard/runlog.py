@@ -17,7 +17,7 @@ from typing import Any
 
 from agentguard import labfs
 from agentguard.attacks import Outcome, Scenario
-from agentguard.gateway.receipts import args_digest
+from agentguard.gateway.receipts import args_match
 
 
 def new_run_dir(root: Path) -> Path:
@@ -116,7 +116,7 @@ class RunLog:
                 1 for r in attack if r.get("denial_class") in ("approval-timeout", "approval-error")
             )
             record.attack_calls, record.attack_calls_refused = len(attack), len(refused)
-            own_calls = {(tool, args_digest(args)): args for tool, args in outcome.calls}
+            own_calls = outcome.calls
             record.refusals = [self._refusal(r, own_calls) for r in refused]
             record.attack_calls_refused_target_existed = sum(
                 1 for r in record.refusals if r["target_existed"]
@@ -127,9 +127,17 @@ class RunLog:
         return record
 
     def _refusal(
-        self, receipt: dict[str, Any], own_calls: dict[tuple[str, str], dict[str, Any]]
+        self, receipt: dict[str, Any], own_calls: list[tuple[str, dict[str, Any]]]
     ) -> dict[str, Any]:
-        args = own_calls.get((receipt["tool"], receipt["args_sha256"]))
+        # Either hash format: runs before Phase 5 used the legacy one (receipts.py).
+        args = next(
+            (
+                a
+                for tool, a in own_calls
+                if tool == receipt["tool"] and args_match(a, receipt["args_sha256"])
+            ),
+            None,
+        )
         path = args.get("path") if args else None
         target = labfs.normalize(path) if isinstance(path, str) else None
         existed = target is not None and (

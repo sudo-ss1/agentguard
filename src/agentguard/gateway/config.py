@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel
@@ -28,6 +29,22 @@ class GuardsConfig(BaseModel):
     injection: InjectionConfig = InjectionConfig()
 
 
+class LedgerConfig(BaseModel):
+    """The audit ledger (Phase 5, docs/phase5-design.md)."""
+
+    # The receipt-signing key. Gateway-only: in Docker its own volume, mounted nowhere else.
+    key_dir: Path = Path(".lab-state/ledger-key")
+    # Signed checkpoints and the exported public key. Readable by auditors; never the key.
+    roots_dir: Path = Path(".lab-state/ledger-roots")
+    checkpoint_interval_s: float = 60.0
+    # batched: fsync on a background thread every fsync_interval_s, and before every
+    #   checkpoint. An OS crash can lose the last receipts, including a decision receipt for a
+    #   call already forwarded.
+    # strict: fsync every decision receipt before the call is forwarded (about +6 ms p50 here).
+    durability: Literal["batched", "strict"] = "batched"
+    fsync_interval_s: float = 0.1
+
+
 class GatewayConfig(BaseModel):
     upstreams: dict[str, str]
     identity: IdentityTrust
@@ -41,6 +58,7 @@ class GatewayConfig(BaseModel):
     # How often upstream tool lists are re-fetched and checked against their pins.
     refresh_interval_s: float = 5.0
     guards: GuardsConfig = GuardsConfig()
+    ledger: LedgerConfig = LedgerConfig()
 
 
 def load_gateway_config(path: Path) -> GatewayConfig:
