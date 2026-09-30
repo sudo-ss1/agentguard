@@ -1,4 +1,4 @@
-.PHONY: up down test attack attack-llm bench lint lock
+.PHONY: up down test attack attack-llm bench lint lock hooks
 
 TRIALS ?= 5
 
@@ -31,3 +31,6 @@ lint:
 
 lock:          ## refresh the pinned requirements used by the Docker image
 	uv pip compile pyproject.toml -o requirements.lock
+
+hooks:         ## install the pre-commit hook (lint + unit tests must pass to commit)
+	git config core.hooksPath .githooks

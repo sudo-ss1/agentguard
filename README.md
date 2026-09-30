@@ -21,6 +21,7 @@ trials ([Evaluation](#evaluation)).
 
 ```bash
 uv sync
+make hooks         # once per clone: commits are blocked unless lint and unit tests pass
 make test          # unit tests + attack tests, baseline and guarded
 make attack        # scripted attacks against a local lab in both modes, prints results tables
 make bench         # per-call latency, direct vs through the gateway
