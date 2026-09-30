@@ -30,3 +30,36 @@ the 20 ms per-call budget, so it ships disabled. See docs/phase4-design.md for t
   deepset includes German rows, so results will be reported separately for English and for
   other languages.
 - **Train-split rows** have been used only in unit tests. The evaluation uses the test split.
+
+## Scanner evaluation (step 3)
+
+Run with `agentguard eval scanner` on 2026-09-30 against the pinned corpora in
+`eval/corpora.lock.json`. The classifier was off, so these numbers are the gateway's
+rule-based scanner only. Items whose text normalizes to nothing: 0 in every group. Intervals
+are 95% Clopper–Pearson. The full per-group table is in `run-logs/scanner-eval/results.md`.
+
+"Detected" means the agent was tainted or the result withheld. "Reached" means the placed
+text is still in what the agent receives.
+
+| Corpus | Label | n | Mode | Detected | Reached |
+| --- | --- | --- | --- | --- | --- |
+| deepset | positive | 60 | raw / visible | 0/60 (0%; 0–6%) | 60/60 (100%; 94–100%) |
+| deepset | positive | 60 | hidden | 0/60 (0%; 0–6%) | 0/60 (0%; 0–6%) |
+| deepset | negative | 56 | any | 0/56 (0%; 0–6%) false positives | 56/56 raw / visible; 0/56 hidden |
+| garak, all 9 probes | positive | 2,216 | raw / visible | 232/2,216 (10.5%; 9.2–11.8%) | 1,984/2,216 (89.5%) |
+| garak, all 9 probes | positive | 2,216 | hidden | 232/2,216 (10.5%; 9.2–11.8%) | 0/2,216 (0%; 0–0.2%) |
+
+- Every garak detection came from one Vigil rule, `InstructionBypass`, in three probes:
+  TranslationEnFr 85/256, TranslationEnZh 91/256 and Whois 56/168. The other six probes had
+  0 detections.
+- In visible and raw placement, every detection withheld the result, and every undetected
+  item reached the agent. Hidden placement never reached the agent, because stripping removes
+  it whether or not a rule matches. Hidden text tainted the agent only when a rule matched it,
+  as designed.
+- deepset: 0/60 injections detected in any placement, and 0/56 false positives.
+- The rules miss almost all of this, which matches the earlier note: in visible placement,
+  about 90% of garak's injections and all of deepset's reach the agent. What happens next is
+  down to policy, which the agent trials measure.
+- Neither corpus matches our threat. deepset is mostly direct injections, and garak's are
+  embedded in documents but written for a model reading the document directly. Neither was
+  written for hidden HTML, so the hidden rows measure stripping, not detection.

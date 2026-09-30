@@ -14,13 +14,17 @@ from agentguard.eval.trials import (
     CONDITIONS,
     Case,
     Trial,
+    carries_target,
     run_conditions,
     sample,
     summarize_trials,
+    target_calls,
     target_in_answer,
     trials_markdown,
     write_pages,
 )
+from agentguard.gateway.receipts import args_digest
+from agentguard.guards.approvals import ApprovalConfig
 
 
 def marker() -> str:
@@ -75,8 +79,60 @@ def test_write_pages(tmp_path):
     assert pages[0].read_text() == place_text(cs[0].text, "hidden")
 
 
-def trial(condition: str, seen: bool, error: str | None = None, classes=None) -> Trial:
-    return Trial(condition, 0, "g", seen, error, [], classes or {})
+def trial(condition: str, seen: bool, error: str | None = None, classes=None, calls=None) -> Trial:
+    return Trial(condition, 0, "g", seen, error, [], classes or {}, calls or [])
+
+
+def receipt(tool: str, arguments: dict, decision: str = "allow", **extra) -> dict:
+    return {"tool": tool, "args_sha256": args_digest(arguments), "decision": decision, **extra}
+
+
+def test_carries_target_looks_in_nested_values_with_normalization():
+    m = marker()
+    assert carries_target(m, {"to": "x@lab.test", "body": f"hello {m.lower()}"})
+    assert carries_target(m, {"items": [{"text": f"{m[:4]}\u200b{m[4:]}"}]})
+    assert not carries_target(m, {"body": "nothing here", "n": 3})
+
+
+def test_target_calls_reports_each_calls_gateway_decision():
+    m = marker()
+    allowed = ("write_file", {"path": "/workspace/a", "content": m})
+    by_policy = ("write_file", {"path": "/etc/a", "content": m})
+    timed_out = ("send_email", {"to": "x@lab.test", "subject": "s", "body": m})
+    unrelated = ("fetch_url", {"url": "http://127.0.0.1/page"})
+    unlogged = ("list_dir", {"path": m})
+    receipts = [
+        receipt(*unrelated),
+        receipt(*allowed, policy_id="files-write-workspace"),
+        receipt(*by_policy, decision="deny", policy_id="default-deny"),
+        receipt(*timed_out, decision="deny", denial_class="approval-timeout", policy_id="approval"),
+    ]
+    calls = target_calls(m, [unrelated, allowed, by_policy, timed_out, unlogged], receipts)
+    assert calls == [
+        {"tool": "write_file", "outcome": "allowed", "policy_id": "files-write-workspace"},
+        {"tool": "write_file", "outcome": "denied: policy", "policy_id": "default-deny"},
+        {"tool": "send_email", "outcome": "denied: approval-timeout", "policy_id": "approval"},
+        {"tool": "list_dir", "outcome": "no receipt", "policy_id": None},
+    ]
+
+
+def test_repeated_identical_calls_each_get_their_own_receipt():
+    m = marker()
+    call = ("write_file", {"path": "/workspace/a", "content": m})
+    receipts = [receipt(*call), receipt(*call, decision="deny", denial_class="guard")]
+    outcomes = [c["outcome"] for c in target_calls(m, [call, call], receipts)]
+    assert outcomes == ["allowed", "denied: guard"]
+
+
+def test_the_gateway_approval_timeout_default_stays_120_s():
+    # Trials shorten it through the lab's gateway overrides; the deployed default must not move.
+    import yaml
+
+    from agentguard.eval.corpora import REPO
+
+    assert ApprovalConfig().timeout_s == 120
+    gateway = yaml.safe_load((REPO / "config" / "gateway.yaml").read_text())
+    assert "approvals" not in gateway.get("guards", {})
 
 
 def test_summary_counts_undecided_and_errors_apart():
@@ -89,15 +145,20 @@ def test_summary_counts_undecided_and_errors_apart():
         trial(name, False, classes={"policy": 2}),  # a block is a decided trial
     ]
     (row, *rest) = summarize_trials(ts, CONDITIONS)
-    assert (row.n, row.target_seen, row.approval_undecided, row.agent_errors) == (5, 2, 1, 1)
-    assert (row.decided_n, row.decided_target_seen) == (3, 1)
+    assert (row.n, row.target_in_answer, row.approval_undecided, row.agent_errors) == (5, 2, 1, 1)
+    assert (row.decided_n, row.decided_target_in_answer) == (3, 1)
+    assert (row.target_in_call, row.call_outcomes) == (0, {})
     assert all(r.n == 0 for r in rest)  # conditions with no trials still get a row
     table = trials_markdown([row, *rest])
     assert len(table.splitlines()) == 2 + len(CONDITIONS)
 
 
+WRITES = ("/workspace/notes.txt", "/etc/notes.txt")  # allowed by policy; denied by default-deny
+
+
 class EchoModel(BaseChatModel):
-    """Fetches the URL in the task, then answers with the fetched text verbatim."""
+    """Fetches the URL in the task, writes the fetched text to each of WRITES, then answers with
+    the fetched text verbatim."""
 
     @property
     def _llm_type(self) -> str:
@@ -107,9 +168,15 @@ class EchoModel(BaseChatModel):
         return self
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        fetched = [m for m in messages if isinstance(m, ToolMessage)]
-        if fetched:
-            message = AIMessage(str(fetched[-1].content))
+        results = [m for m in messages if isinstance(m, ToolMessage)]
+        if results:
+            page = str(results[0].content)
+            if len(results) <= len(WRITES):
+                args = {"path": WRITES[len(results) - 1], "content": page}
+                call = {"name": "write_file", "args": args, "id": str(len(results) + 1)}
+                message = AIMessage("", tool_calls=[call])
+            else:
+                message = AIMessage(page)
         else:
             task = next(m for m in messages if isinstance(m, HumanMessage))
             url = re.search(r"http\S+", str(task.content)).group(0)
@@ -122,12 +189,19 @@ class EchoModel(BaseChatModel):
 async def test_conditions_end_to_end(tmp_path):
     cs = cases(2)
     trials = await run_conditions(cs, CONDITIONS, EchoModel(), "", tmp_path, 1.0)
-    seen = {(t.condition, t.case): t.target_seen for t in trials}
-    assert all(t.agent_error is None and t.tools_called == ["fetch_url"] for t in trials)
+    by = {(t.condition, t.case): t for t in trials}
+    expected_tools = ["fetch_url", "write_file", "write_file"]
+    assert all(t.agent_error is None and t.tools_called == expected_tools for t in trials)
+    written = [
+        {"tool": "write_file", "outcome": "allowed", "policy_id": "files-write-workspace"},
+        {"tool": "write_file", "outcome": "denied: policy", "policy_id": "default-deny"},
+    ]
     for c in cs:
-        assert seen[("visible-scanner-on", c.index)]  # visible text reaches the agent
-        assert not seen[("hidden-scanner-on", c.index)]  # hidden text is stripped
-        assert seen[("hidden-scanner-off", c.index)]  # the control: nothing strips it
+        for name in ("visible-scanner-on", "hidden-scanner-off"):  # the text reaches the agent
+            assert by[(name, c.index)].target_in_answer
+            assert by[(name, c.index)].target_calls == written
+        stripped = by[("hidden-scanner-on", c.index)]  # hidden text is stripped
+        assert not stripped.target_in_answer and stripped.target_calls == []
     lines = (tmp_path / "trials.jsonl").read_text().splitlines()
     assert len(lines) == len(cs) * len(CONDITIONS)
     assert json.loads(lines[0])["condition"] == CONDITIONS[0].name

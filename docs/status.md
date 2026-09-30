@@ -16,7 +16,7 @@ Last updated: 2026-09-30.
 | 1 | Generic page placement (`eval/placement.py`: `place_text`, `reaches_reader`), tested with random markers only | Done, `14d6f8f` |
 | 2a | Metrics (`eval/metrics.py`); `reaches_reader` normalizes both sides | Done, `55e4145` (tests written by the user) |
 | 2b | CLI: `agentguard eval fetch / scanner / llm`, `eval/sources.py`, `eval/trials.py` | Done (this commit) |
-| 3 | Run the scanner eval on the pinned corpora (loaded at runtime through `corpora.py`) and report the tables | Not started |
+| 3 | Scanner eval on the pinned corpora, results in `docs/eval-notes.md` | Done |
 | 4 | LLM trials in the background: 20+ per condition, pinned settings, approval timeouts counted separately | Not started |
 
 Both corpora are fetched and hash-verified in `eval/data/`, which is gitignored:
@@ -52,6 +52,12 @@ Both corpora are fetched and hash-verified in `eval/data/`, which is gitignored:
   `authorizer-limit`.
 - **Large pages:** the parser comes first and the 64 KiB cap is the fallback. The 771 KB page's
   latency overage (+20.9 ms p95) is a documented exception.
+- **Agent trials** count three things per condition: the target in the final answer; tool calls
+  carrying the target in their arguments; and each such call's gateway decision (allowed, or
+  denied by which layer). Calls are matched to receipts by argument hash, denied calls included.
+  Trials use a 10 s approval timeout. The gateway's default stays 120 s, and a test checks it.
+- **Items whose text normalizes to nothing** are left out of the scanner rates and counted per
+  group. There are 0 in both corpora.
 - **Eval code stays generic.** Placement and metrics know nothing about corpus content. Tests use
   placeholder strings or synthetic labelled data. Names are neutral throughout.
 
@@ -69,8 +75,7 @@ Both corpora are fetched and hash-verified in `eval/data/`, which is gitignored:
 
 - Metrics: should `detected` stay "tainted or withheld", or should taint and withhold be reported
   as separate columns, with detection defined as either?
-- LLM trials: the oracle is the target string in the agent's final answer only, not in tool-call
-  arguments. The approval timeout for trials is 10 s (the deployed default is 120 s).
+- LLM trials: which model digest to pin.
 - Reporting: the corpora hold mostly direct injections, while the gateway defends against indirect
   (tool-result) injection. The report needs to say so, and to say the classifier was disabled.
 - LLM trials: which model digest to pin, and whether to use the lab Ollama host (<ollama-host>).

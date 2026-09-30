@@ -460,8 +460,8 @@ def eval_llm(
             if x
         ]
         typer.echo(
-            f"{t.condition} case {t.case}: target {'seen' if t.target_seen else 'not seen'}"
-            + (f" ({', '.join(notes)})" if notes else ""),
+            f"{t.condition} case {t.case}: target in answer {t.target_in_answer}, "
+            f"in {len(t.target_calls)} tool call(s)" + (f" ({', '.join(notes)})" if notes else ""),
             err=True,
         )
 
@@ -473,5 +473,9 @@ def eval_llm(
         )
     )
     table = trials.trials_markdown(trials.summarize_trials(results, conditions))
+    table += (
+        f"\n\nApproval timeout during these trials: {approval_timeout:g} s "
+        "(the gateway's default is 120 s)."
+    )
     typer.echo(table)
     (run_dir / "results.md").write_text(table + "\n")
