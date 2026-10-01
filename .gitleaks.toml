@@ -1,0 +1,25 @@
+# gitleaks configuration for this repository: gitleaks' default rules, plus allowlists for
+# known false positives. Each entry is narrow (one file, or one exact public value), so a real
+# secret anywhere else is still reported.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "The lab's canary SSH key: a fake key whose body is a plain-text marker. Attack 1 tries to exfiltrate it."
+paths = ['''^lab/rootfs/home/agent/\.ssh/id_rsa$''']
+
+[[allowlists]]
+description = "Public example DIDs from the W3C did:key specification, used as test vectors."
+regexTarget = "match"
+regexes = [
+  '''z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK''',
+  '''zQ3shokFTS3brHcDQrn82RUDfCZESWL1ZdCEJwekUDPQiYBme''',
+]
+
+[[allowlists]]
+description = "Wikipedia's public hCaptcha site key, part of the saved public page used as a benign test input."
+regexTarget = "line"
+regexes = ['''wgConfirmEditHCaptchaSiteKey''']
+paths = ['''^tests/data/wikipedia_tomato\.html$''']
+condition = "AND"
