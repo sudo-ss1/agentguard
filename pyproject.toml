@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Zero-trust runtime layer for AI agents (learning project)"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = [
     "mcp>=1.9",
     "langgraph>=0.4",
