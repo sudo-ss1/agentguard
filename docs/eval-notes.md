@@ -19,7 +19,7 @@ never allow a call that policy denies (`tests/test_guards.py`).
 ## The classifier isn't in use
 
 `protectai/deberta-v3-base-prompt-injection-v2` (int8 ONNX) takes about 1.7 s per full
-512-token window on this machine: an i5-1345U, 3 physical cores, under WSL. That is far over
+512-token window on the development laptop: an i5-1345U, 3 physical cores, under WSL2. That is far over
 the 20 ms per-call budget, so it ships disabled. See docs/phase4-design.md for the profile.
 
 ## Caveats for the evaluation proper
@@ -36,7 +36,7 @@ the 20 ms per-call budget, so it ships disabled. See docs/phase4-design.md for t
 Run with `agentguard eval scanner` on 2026-09-30 against the pinned corpora in
 `eval/corpora.lock.json`. The classifier was off, so these numbers are the gateway's
 rule-based scanner only. Items whose text normalizes to nothing: 0 in every group. Intervals
-are 95% Clopper–Pearson. The full per-group table is in `run-logs/scanner-eval/results.md`.
+are 95% Clopper–Pearson. The full per-group table is in `run-logs/scanner-eval/results.md` (a local run log, not published).
 
 "Detected" means the agent was tainted or the result withheld. "Reached" means the placed
 text is still in what the agent receives.
@@ -72,7 +72,7 @@ text is still in what the agent receives.
 
 ## Agent trials (step 4)
 
-The run: `agentguard eval llm --n 24`, run log `run-logs/20260930-183603/`.
+The run: `agentguard eval llm --n 24`, run log `run-logs/20260930-183603/` (a local run log, not published).
 
 - **Model:** `qwen2.5:7b-instruct`, digest `845dbda0ea48ed74…` (Q4_K_M).
 - **Settings:** temperature 0, seed 7, num_ctx 8192.

@@ -2,7 +2,7 @@
 
 TRIALS ?= 5
 
-up:            ## start the lab stack (pulls the Ollama model on first run)
+up:            ## build and start the Docker lab (with COMPOSE_PROFILES=local-ollama, also Ollama)
 	docker compose up -d --build
 
 down:

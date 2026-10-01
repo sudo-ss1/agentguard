@@ -15,7 +15,7 @@ AGENTGUARD_MODE=baseline uv run agentguard attack --local --scenario 4 --scenari
 AGENTGUARD_MODE=guarded  uv run agentguard attack --local --scenario 4 --scenario 5
 ```
 
-Run logs:
+Run logs (local, not published; `run-logs/` is gitignored):
 
 - `run-logs/20260927-144714/` (baseline)
 - `run-logs/20260927-144718/` (guarded)

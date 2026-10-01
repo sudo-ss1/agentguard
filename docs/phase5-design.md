@@ -99,7 +99,7 @@ rounds), strict +5.6 to +5.9 ms (5 rounds). The strict figure is about one fsync
   the batched schedule, so in strict mode an OS crash can still lose an outcome receipt, which
   `verify` then reports as "outcome unknown".
 
-Raw reports: `run-logs/latency-phase5/controlled/` (gitignored).
+Raw reports: `run-logs/latency-phase5/controlled/` (a local run log, not published).
 
 Micro-benchmarks from the design stage (5 runs, same machine, 620-byte receipt):
 

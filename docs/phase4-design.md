@@ -117,7 +117,7 @@ never creates an approval request.
     1,000 tokens, two full windows) costing about 2 s is consistent, not a bug.
   - **Precision:** int8 is 1.6× faster than fp32.
 - **Decision:** a full 512-token window takes about 1.7 s, and even 32 tokens take about 30 ms,
-  so the classifier can't meet the 20 ms budget on this machine. It ships disabled
+  so the classifier can't meet the 20 ms budget on the development laptop. It ships disabled
   (`classifier.enabled: false`), and the rules-only fallback is active. It could be re-evaluated:
   - on faster hardware (more cores, a GPU or an NPU)
   - with a smaller model, e.g. a DeBERTa-small or distilled classifier whose training data can
@@ -188,8 +188,8 @@ the classifier (if enabled) flags it or can't finish.
 **What it was.** One full-suite run failed an assertion that a valid token authorizes a tool
 (reason `rights`, no failed checks). It was a wrongful **deny**, never an allow.
 
-- **Cause:** Biscuit's authorizer has a default 1 ms time limit. Under CPU load on this machine
-  (i5-1345U, 3 physical cores, WSL), plain authorizations reached 4.1 ms, so a valid call was
+- **Cause:** Biscuit's authorizer has a default 1 ms time limit. Under CPU load on the development
+  laptop (i5-1345U, 3 physical cores, WSL), plain authorizations reached 4.1 ms, so a valid call was
   occasionally denied.
 - **Mislabelled:** the classifier reported that limit error as `rights`.
 - **Reproduced** under full CPU load: 2 of 5,000 valid calls were denied. Under the same load,
