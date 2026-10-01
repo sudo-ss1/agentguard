@@ -89,9 +89,9 @@ rounds), strict +5.6 to +5.9 ms (5 rounds). The strict figure is about one fsync
 - **Its tail over budget is not clearly the ledger's.**
   - The Phase 4 control also went over twice, on fetch_url, whose direct baseline itself varied
     from 20 to 39 ms p50 between rounds.
-  - Round 5's list_dir p95 (+42.6 ms) happened only in ledger modes: strict was also slow in
-    that round, while the Phase 4 control wasn't. A disk stall during fsync is a plausible
-    cause, but unproven.
+  - **Round 5's list_dir p95 (+42.6 ms) was seen only in ledger modes, and is unexplained.**
+    Strict was also slow in that round, while the Phase 4 control wasn't. A disk stall during
+    fsync is plausible, but unproven.
 - **Strict fits the budget at the median (p95 13–15 ms).** One fetch_url round went over.
 - **An earlier version of strict fsynced every receipt,** two per allowed call, contrary to this
   design. It measured +19–22 ms p50 over direct and missed the budget (rounds 1–5, kept in the

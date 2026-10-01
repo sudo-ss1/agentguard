@@ -1,4 +1,4 @@
-.PHONY: up down test attack attack-llm bench lint lock hooks
+.PHONY: up down test attack attack-docker attack-llm bench lint lock hooks
 
 TRIALS ?= 5
 
@@ -15,6 +15,16 @@ test:          ## unit tests + attack tests in both modes
 attack:        ## scripted attacks against a local lab, both modes; prints the results tables
 	AGENTGUARD_MODE=baseline uv run agentguard attack --local
 	AGENTGUARD_MODE=guarded uv run agentguard attack --local
+
+SCENARIOS ?= 1 2 3 4 5 6 7
+
+attack-docker: ## scripted attacks in the Docker lab (guarded), one scenario at a time
+	@# Guard state (taint, budgets, kill list) is on the gateway-only volume, so it is reset
+	@# from the host before each scenario; the agent container has no way to reset it.
+	@for n in $(SCENARIOS); do \
+		docker compose exec -T gateway agentguard guards reset || exit 1; \
+		AGENTGUARD_MODE=guarded docker compose run --rm -T agent agentguard attack --scenario $$n || exit 1; \
+	done
 
 attack-llm:    ## scripted + LLM attacks inside the Docker lab (AGENTGUARD_MODE picks the stack)
 	docker compose exec gateway agentguard guards reset   # revive agents, clear budgets/taint

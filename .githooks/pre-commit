@@ -1,12 +1,39 @@
 #!/usr/bin/env bash
-# AgentGuard pre-commit hook: lint and the unit tests must pass, or the commit is blocked.
+# AgentGuard pre-commit hook: lint and the unit tests must pass on what is staged, or the
+# commit is blocked.
 #
 # Install once per clone:  make hooks   (git config core.hooksPath .githooks)
+#
+# Only staged changes are checked: unstaged changes to tracked files are stashed first
+# (git stash --keep-index) and put back afterwards, whether the checks pass or fail. They are
+# put back from the stash's own snapshot (git restore --worktree), which never touches the
+# index, so a file with both staged and unstaged edits comes back exactly as it was.
+# Untracked files are not stashed, so the checks still see them.
+#
 # Each step's exit code is checked directly; nothing is piped, so a failure can't be hidden.
-# Note: it checks the working tree, not only what is staged.
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 1
+
+stashed=0
+if ! git diff --quiet; then
+    if ! git stash push --keep-index --quiet --message "pre-commit: unstaged changes"; then
+        echo "pre-commit: could not stash unstaged changes; commit blocked" >&2
+        exit 1
+    fi
+    stashed=1
+fi
+
+restore() {
+    if [ "$stashed" -ne 1 ]; then
+        return
+    fi
+    if git restore --source="stash@{0}" --worktree -- . && git stash drop --quiet; then
+        return
+    fi
+    echo "pre-commit: could not restore your unstaged changes; they are in 'git stash list'" >&2
+}
+trap restore EXIT
 
 make lint
 status=$?

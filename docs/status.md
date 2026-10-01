@@ -1,19 +1,23 @@
 # Status
 
-Last updated: 2026-09-30.
+Last updated: 2026-10-01.
 
 ## Phases
 
 - Phases 1–3: done and committed.
 - Phase 4 (runtime guards): done. Guards, the evaluation harness, the scanner eval and the LLM
   trials are committed, and the results are in the README and `docs/eval-notes.md`.
-- Phase 5 (the tamper-evident audit ledger with verifier): in progress. Design approved
-  2026-09-30 (`docs/phase5-design.md`). Done: key isolation, canonical form, the ledger writer
-  (checkpoints, torn-tail recovery, startup checks), decision and outcome receipts in the
-  gateway, `agentguard ledger verify`, attack 7, the pre-commit hook. Latency measured
-  (docs/phase5-design.md). Docker lab checked 2026-09-30: attacks 1–7 blocked, the agent
-  container can't write the ledger or see the key and salts. Rekor is skipped this phase (future
-  work). The Phase 5 box stays unticked.
+- Phase 5 (the tamper-evident audit ledger with verifier): done (2026-10-01). Design:
+  `docs/phase5-design.md`.
+  - Built: key isolation, the canonical form, and the ledger writer (checkpoints, torn-tail
+    recovery, startup checks).
+  - In the gateway: decision and outcome receipts, `agentguard ledger verify`, attack 7.
+  - Tooling: a pre-commit hook that checks staged changes only, and `make attack-docker`.
+  - Measured: latency, 10 rounds.
+  - Docker lab: attacks 1–7 blocked. The agent container can't write the ledger or see the key
+    and salts, and no image contains local files.
+  - Rekor is future work.
+- Phase 6 (visibility: discovery scanner, risk engine, dashboard) is next.
 
 ## Phase 4 evaluation harness (done)
 
@@ -87,16 +91,16 @@ Both corpora are fetched and hash-verified in `eval/data/`, which is gitignored:
   gateway listed no tools to the agent", never as "target not seen". The Phase 4 LLM results
   are unaffected (all 72 trials called fetch_url).
 
-- **Docker: taint carries across scripted scenarios.** In Docker the harness can't reset the
-  gateway's guard state between scenarios (it lives on the gateway-only volume, by design), so
-  attack 1's taint was still active in attack 6: its first 5 fetches needed approval and each
-  waited out the 120 s timeout (recorded as approval-timeout, not blocks) before the taint
-  expired and the budget stopped the loop (30/500). The local lab resets between scenarios.
-  Not fixed yet.
+- **Fixed 2026-10-01: taint carried across Docker scenarios.** The agent container can't
+  reset guard state (it is gateway-only), so attack 1's taint made attack 6's first fetches
+  wait out approval timeouts. `make attack-docker` now resets guard state from the host
+  (`docker compose exec gateway agentguard guards reset`) before each scenario. Re-run: attack 6
+  went 30 allowed, 20 budget denials, then 450 kill-switch refusals, with no approval timeouts.
 - **Fixed 2026-09-30: local files baked into Docker images.** `.dockerignore` didn't exclude
   `.env`, `.git`, `run-logs/` (which hold local receipt salts) or `eval/data/`, so `COPY . .`
-  put them in every image. They are now excluded; checked from inside the rebuilt agent
-  container. Older images built before the fix still contain them.
+  put them in every image. They are now excluded, checked from inside the rebuilt agent
+  container. The 34 images built before the fix were removed on 2026-10-01 (images only, no
+  volumes), and none of the remaining images contains any of these paths.
 
 ## Open questions
 
