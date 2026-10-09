@@ -115,8 +115,8 @@ denylist: each `-c` override closes one known hole, and an unknown one stays ope
 **Decision: dulwich, reading objects directly.**
 
 - The scanner opens `DiskObjectStore` and the refs only. It never constructs a dulwich `Repo`,
-  never reads `.git/config`, and never calls `get_blob_normalizer`. In dulwich 1.2.17 the
-  modules that start processes are `hooks`, `filters`, `signature`, `merge_drivers`, `patch`,
+  never reads `.git/config`, and never calls `get_blob_normalizer`. In dulwich (1.2.17 read
+  as source, 1.2.15 as installed) the modules that start processes are `hooks`, `filters`, `signature`, `merge_drivers`, `patch`,
   `diffstat`, `rebase`, `client` and `cli`. None is imported by `object_store`, `objects`,
   `pack`, `refs`, `diff_tree` or `walk`.
 - Diffs are computed by comparing trees: each blob added or changed by a commit is scanned
@@ -124,7 +124,8 @@ denylist: each `-c` override closes one known hole, and an unknown one stays ope
 - `objects/info/alternates` would make the store read other repos' objects from anywhere on
   disk. A repo that has one is listed in `not_scanned`.
 - Resource limits: the same per-blob size cap, and a cap on commits walked, reported if hit.
-- Licence: Apache-2.0 OR GPL-2.0-or-later. Pinned to an exact version.
+- Licence: Apache-2.0 OR GPL-2.0-or-later; used under Apache-2.0. Pinned to 1.2.15, the
+  newest release at least two weeks old on 2026-10-09 (1.2.17 was six days old).
 - The test is a fixture repo whose config sets every executing hook found above (textconv,
   external diff, fsmonitor, pager, `log.showSignature` with `gpg.program`, a hook). Each would
   create a marker file if it ran. `scan --history` must find the committed canary and no

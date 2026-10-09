@@ -12,7 +12,6 @@ import os
 import secrets
 import socket
 import stat
-import string
 from pathlib import Path
 
 import pytest
@@ -33,31 +32,9 @@ from agentguard.discovery.mcp_configs import (
     strip_jsonc,
 )
 from agentguard.guards.secrets import SecretFinding, SecretScanner
+from tests.canaries import anthropic_canary, assert_absent, github_canary
 
 runner = CliRunner()
-URLSAFE = string.ascii_letters + string.digits + "_-"
-ALNUM = string.ascii_letters + string.digits
-
-
-def anthropic_canary() -> str:
-    """Shaped like an Anthropic API key (gitleaks `anthropic-api-key`), marked as a canary."""
-    body = "AGENTGUARDCANARY" + "".join(secrets.choice(URLSAFE) for _ in range(93 - 16))
-    return f"sk-ant-api03-{body}AA"
-
-
-def github_canary() -> str:
-    return "ghp_" + "".join(secrets.choice(ALNUM) for _ in range(36))
-
-
-def pieces(secret: str, n: int = 8) -> set[str]:
-    return {secret[i : i + n] for i in range(len(secret) - n + 1)}
-
-
-def assert_absent(canaries: list[str], *outputs: str) -> None:
-    for canary in canaries:
-        for output in outputs:
-            leaked = [p for p in pieces(canary) if p in output]
-            assert not leaked, f"{len(leaked)} piece(s) of a canary appear in the output"
 
 
 @pytest.fixture(scope="module")
@@ -160,6 +137,7 @@ def test_credentials_are_listed_by_rule_file_line_and_fingerprint(repo, key, sca
         "file",
         "line",
         "fingerprint",
+        "commit",
     }
 
 

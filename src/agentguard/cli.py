@@ -564,6 +564,9 @@ def scan(
     machine: Annotated[
         bool, typer.Option(help="Also read this user's MCP client configs (incl. WSL's /mnt/c).")
     ] = False,
+    history: Annotated[
+        bool, typer.Option(help="Also scan every commit of each git repo (read with dulwich).")
+    ] = False,
     agents: Annotated[
         Path | None, typer.Option(help="Agent-to-source mapping, e.g. config/inventory.yaml.")
     ] = None,
@@ -610,11 +613,13 @@ def scan(
         if root.resolve() not in seen:
             seen.add(root.resolve())
             inventory.scan_root(root)
+            if history:
+                inventory.scan_history(root)
     if machine:
         windows = Path("/mnt/c/Users")
         for path in machine_config_paths(Path.home(), windows if windows.is_dir() else None):
             inventory.scan_client_config(path)
-    result = inventory.to_json(started, history=False, receipts=receipts)
+    result = inventory.to_json(started, history=history, receipts=receipts)
     text = json.dumps(result, indent=2) + "\n"
     if out is None:
         typer.echo(text, nl=False)

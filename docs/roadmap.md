@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-10-01. The phases follow [agentguardplan.md](../agentguardplan.md).
+Last updated: 2026-10-09. The phases follow [agentguardplan.md](../agentguardplan.md).
 
 ## Done
 
@@ -50,3 +50,22 @@ local lab (`make attack`) and in Docker (`make attack-docker`).
   window on the development laptop (i5-1345U, under WSL2), far over the latency budget.
 - **Metrics definition.** "Detected" in the scanner evaluation means tainted or withheld. It is
   an open question whether to report the two separately.
+
+## Resolved issues
+
+- **A secret could appear in a `SecretFinding` repr** (fixed 2026-10-09). Since Phase 4, the
+  secret scanner's finding class used the default dataclass repr, which includes the matched
+  secret. Any repr of it (a log line, a traceback, a failed test assertion) would have shown the
+  value. The secret field is now left out of the repr, and the discovery scanner's own types
+  never show content.
+  - **No exposure found.** No code logs, formats or reprs a `SecretFinding`: it is created in
+    `scan_arguments` and only its fields are read, by `SecretScanGuard`. Searched with the
+    gitleaks rules and for repr-shaped text (`SecretFinding(rule_id`, `'secret': '`):
+    - the full git history (37 commits, every ref): only the three values `.gitleaks.toml`
+      allowlists (the lab's canary SSH key, W3C did:key test vectors, Wikipedia's public
+      hCaptcha site key)
+    - local run logs (`run-logs/`, 10 runs): nothing
+    - the Docker lab: the ledger, checkpoints, lab state and guard state volumes, and the logs
+      of the seven AgentGuard containers (not the nginx evil site). Every match was a `did:key` (a public key) or the canary SSH
+      key in the lab's files. The salt store, signing-key and agent-credential volumes were not
+      searched: they hold committed values and private keys by design.

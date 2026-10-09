@@ -45,6 +45,8 @@ cryptography==50.0.1
     #   pyjwt
 distro==1.9.0
     # via langsmith
+dulwich==1.2.15
+    # via agentguard (pyproject.toml)
 fastapi==0.141.1
     # via agentguard (pyproject.toml)
 filelock==4.0.6
@@ -248,7 +250,9 @@ typing-inspection==0.4.4
     #   pydantic
     #   pydantic-settings
 urllib3==2.8.0
-    # via requests
+    # via
+    #   dulwich
+    #   requests
 uuid-utils==0.17.1
     # via
     #   langchain-core

@@ -26,6 +26,8 @@ dependencies = [
     "tokenizers>=0.20",
     "huggingface_hub>=0.30",
     "yara-python==4.5.4",
+    # `agentguard scan --history`: reads git objects without running git (Apache-2.0 option).
+    "dulwich==1.2.15",
 ]
 
 [project.optional-dependencies]

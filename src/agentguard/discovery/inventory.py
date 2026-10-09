@@ -27,9 +27,10 @@ from pydantic import BaseModel
 
 from agentguard.discovery.files import NotScanned, TextFile, describe, read_text, walk
 from agentguard.discovery.fingerprint import secret_fingerprint
+from agentguard.discovery.history import HistoryStats, blobs
 from agentguard.discovery.mcp_configs import UnparsedConfig, client_of, servers_in, summarize
 from agentguard.discovery.sdks import models_in, sdks_in
-from agentguard.guards.secrets import GITLEAKS_VERSION, RULES_SHA256, SecretScanner
+from agentguard.guards.secrets import GITLEAKS_VERSION, RULES_SHA256, SecretScanner, TextFinding
 from agentguard.identity.service import load_identity_config
 from agentguard.ledger.read import calls
 
@@ -140,7 +141,7 @@ class Inventory:
                 self.not_scanned.append(item)
                 if item.rel is not None:  # path-only rules (e.g. a .p12 file) need no content
                     agent = self._shadow_or_mapped(Path(item.path), default, root_uid)
-                    self._path_rule_findings(agent, item)
+                    self._path_rule_findings(agent, item.rel, item.path)
                 continue
             agent = self._shadow_or_mapped(item.path, default, root_uid)
             agent.sources.add(str(root))
@@ -150,12 +151,56 @@ class Inventory:
         name = self._owner_of(path, default)
         return self.agents[name] if name in self.agents else self._shadow(name, uid)
 
-    def _path_rule_findings(self, agent: _Agent, item: NotScanned) -> None:
-        assert item.rel is not None
-        for f in self.scanner.find("", item.rel):
+    def _path_rule_findings(
+        self, agent: _Agent, rel: str, display: str, commit: str | None = None
+    ) -> None:
+        for f in self.scanner.find("", rel):
             agent.credentials.append(
-                {"rule_id": f.rule_id, "file": item.path, "line": None, "fingerprint": None}
+                {
+                    "rule_id": f.rule_id,
+                    "file": display,
+                    "line": None,
+                    "fingerprint": None,
+                    "commit": commit,
+                }
             )
+
+    def scan_history(self, root: Path) -> None:
+        """Every commit reachable from the repo's refs (discovery/history.py). Findings carry
+        the commit that introduced them."""
+        label = f"{root} (history)"
+        try:
+            root_uid = root.stat().st_uid
+            stats = HistoryStats()
+            default = f"repo:{root.resolve().name}"
+            for blob in blobs(root, stats):
+                path = root / blob.rel
+                agent = self._shadow_or_mapped(path, default, root_uid)
+                if blob.text is None:
+                    self._path_rule_findings(agent, blob.rel, str(path), blob.commit)
+                    continue
+                for f in self.scanner.find(blob.text, blob.rel):
+                    agent.credentials.append(self._credential(f, blob.text, str(path), blob.commit))
+        except Exception as exc:  # fail closed: findings so far are kept, and the gap reported
+            self.not_scanned.append(NotScanned(label, describe(exc)))
+            return
+        if stats.truncated:
+            self.not_scanned.append(NotScanned(label, f"stopped after {stats.commits} commits"))
+        if stats.skipped_blobs:
+            self.not_scanned.append(
+                NotScanned(label, f"{stats.skipped_blobs} blob(s) binary or over the size cap")
+            )
+
+    def _credential(
+        self, f: TextFinding, text: str, display: str, commit: str | None = None
+    ) -> dict[str, Any]:
+        return {
+            "rule_id": f.rule_id,
+            "file": display,
+            "line": text.count("\n", 0, f.start) + 1 if f.secret else None,
+            "fingerprint": secret_fingerprint(self.key, f.secret) if f.secret else None,
+            "commit": commit,
+        }
 
     def _scan_file(self, agent: _Agent, file: TextFile, display: str) -> None:
         try:
@@ -175,15 +220,7 @@ class Inventory:
         except Exception as exc:  # fail closed: reported, never silently dropped
             self.not_scanned.append(NotScanned(display, describe(exc)))
             return
-        for f in findings:
-            agent.credentials.append(
-                {
-                    "rule_id": f.rule_id,
-                    "file": display,
-                    "line": file.text.count("\n", 0, f.start) + 1 if f.secret else None,
-                    "fingerprint": secret_fingerprint(self.key, f.secret) if f.secret else None,
-                }
-            )
+        agent.credentials += [self._credential(f, file.text, display) for f in findings]
         agent.servers += servers
         agent.sdks |= sdks
         agent.models |= models
@@ -230,7 +267,8 @@ class Inventory:
                     "mcp_servers": sorted(a.servers, key=lambda s: (s["config"], s["name"] or "")),
                     "sdks": sorted(a.sdks),
                     "credentials": sorted(
-                        a.credentials, key=lambda c: (c["file"], c["line"] or 0, c["rule_id"])
+                        a.credentials,
+                        key=lambda c: (c["file"], c["line"] or 0, c["rule_id"], c["commit"] or ""),
                     ),
                     "last_seen": seen,
                     "sources": sorted(a.sources),
