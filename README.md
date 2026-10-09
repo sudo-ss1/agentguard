@@ -389,3 +389,14 @@ The budget is under 20 ms added per call.
   [docs/roadmap.md](docs/roadmap.md).
 - **Licence:** Apache-2.0 ([LICENSE](LICENSE)). Vendored rules and test data keep their own
   licences, recorded in the LICENSE and NOTICE files next to them.
+
+## Third-party material
+
+- **gitleaks rules** v8.30.1 (MIT), vendored: `src/agentguard/guards/data/gitleaks.toml`
+- **Vigil rules** at commit `f2b4c134` (Apache-2.0), vendored: `src/agentguard/guards/data/vigil/`
+- **dulwich** 1.2.15, a dependency, used under the Apache-2.0 option of its Apache-2.0 OR
+  GPL-2.0-or-later licence
+- **Test data:** a deepset/prompt-injections sample (Apache-2.0) and Wikipedia's "Tomato"
+  article (CC BY-SA 4.0); see `tests/data/NOTICE*`
+- Downloaded at runtime by `agentguard eval fetch`, not included in the repo: garak prompts and
+  the deepset test split.
