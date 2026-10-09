@@ -548,3 +548,102 @@ def ledger_pubkey(
     from agentguard.ledger.keys import SIGNING_KEY_FILE
 
     typer.echo(AgentKey.load(key_dir / SIGNING_KEY_FILE).did)
+
+
+# --- discovery (Phase 6) ------------------------------------------------------------------------
+
+KeyFileOpt = Annotated[
+    Path | None,
+    typer.Option(help="Fingerprint key (default: $XDG_STATE_HOME/agentguard/scanner.key)."),
+]
+
+
+@app.command()
+def scan(
+    paths: Annotated[list[Path] | None, typer.Argument(help="Repos or folders to scan.")] = None,
+    machine: Annotated[
+        bool, typer.Option(help="Also read this user's MCP client configs (incl. WSL's /mnt/c).")
+    ] = False,
+    agents: Annotated[
+        Path | None, typer.Option(help="Agent-to-source mapping, e.g. config/inventory.yaml.")
+    ] = None,
+    receipts: Annotated[
+        Path | None, typer.Option(help="Ledger to read registered agents' last_seen from.")
+    ] = None,
+    allowlist: Annotated[
+        Path | None, typer.Option(help="Your own gitleaks-format allowlist file.")
+    ] = None,
+    key_file: KeyFileOpt = None,
+    out: Annotated[Path | None, typer.Option(help="Write the JSON here (default: stdout).")] = None,
+) -> None:
+    """Inventory agents, MCP servers, LLM SDKs and credentials. Read-only and offline.
+
+    Credentials are reported as rule id, file, line and a keyed fingerprint, never the secret.
+    Exit code: 0 complete and no credentials, 1 credentials found, 3 something wasn't scanned
+    (listed in `not_scanned`), 2 bad input.
+    """
+    import hashlib
+    from datetime import UTC, datetime
+
+    from agentguard.discovery.fingerprint import ScannerKeyError, load_or_create_key
+    from agentguard.discovery.inventory import Inventory, load_inventory_config
+    from agentguard.discovery.mcp_configs import machine_config_paths
+    from agentguard.guards.secrets import RULES_PATH, RULES_SHA256, SecretScanner
+
+    if not paths and not machine and agents is None:
+        raise typer.BadParameter("give PATHS, --machine or --agents")
+    if hashlib.sha256(RULES_PATH.read_bytes()).hexdigest() != RULES_SHA256:
+        typer.echo("the vendored gitleaks rules don't match their pinned hash", err=True)
+        raise typer.Exit(2)
+    try:
+        key = load_or_create_key(key_file or get_settings().scanner_key_path)
+    except ScannerKeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from None
+    started = datetime.now(UTC).isoformat(timespec="seconds")
+    config = load_inventory_config(agents) if agents else None
+    inventory = Inventory(SecretScanner(extra_allowlists=allowlist), key, config)
+    roots = list(paths or []) + [s for a in (config.agents if config else {}).values()
+                                 for s in a.sources]  # fmt: skip
+    seen: set[Path] = set()
+    for root in roots:
+        if root.resolve() not in seen:
+            seen.add(root.resolve())
+            inventory.scan_root(root)
+    if machine:
+        windows = Path("/mnt/c/Users")
+        for path in machine_config_paths(Path.home(), windows if windows.is_dir() else None):
+            inventory.scan_client_config(path)
+    result = inventory.to_json(started, history=False, receipts=receipts)
+    text = json.dumps(result, indent=2) + "\n"
+    if out is None:
+        typer.echo(text, nl=False)
+    else:
+        out.write_text(text)
+    found = sum(len(a["credentials"]) for a in result["agents"])
+    typer.echo(
+        f"{len(result['agents'])} agent(s), {found} credential finding(s), "
+        f"{len(result['not_scanned'])} path(s) not scanned",
+        err=True,
+    )
+    if found:
+        raise typer.Exit(1)
+    if result["not_scanned"]:
+        raise typer.Exit(3)
+
+
+@app.command()
+def fingerprint(key_file: KeyFileOpt = None) -> None:
+    """Print the scanner fingerprint of a suspected secret, read from stdin (never an
+    argument, which would land in shell history and the process list)."""
+    import getpass
+
+    from agentguard.discovery.fingerprint import load_or_create_key, secret_fingerprint
+
+    secret = getpass.getpass("secret: ") if sys.stdin.isatty() else sys.stdin.read()
+    secret = secret.rstrip("\r\n")
+    if not secret:
+        raise typer.BadParameter("no secret on stdin")
+    typer.echo(
+        secret_fingerprint(load_or_create_key(key_file or get_settings().scanner_key_path), secret)
+    )

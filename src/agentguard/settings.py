@@ -1,9 +1,11 @@
 """Runtime settings, read from environment variables (see .env.example)."""
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +40,14 @@ class Settings(BaseSettings):
         ".lab-state/rugpull.flag"
     )  # weather server rug-pulls once this exists
     evil_site: str = "http://evil.test"
+    # The discovery scanner's fingerprint key (Phase 6): per user, not per lab, so the same
+    # secret gets the same fingerprint across scans on this machine. Created 0600 on first use.
+    scanner_key_path: Path = Field(
+        default_factory=lambda: (
+            Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
+            / "agentguard/scanner.key"
+        )
+    )
 
     @property
     def agent_config_path(self) -> Path:

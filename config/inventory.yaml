@@ -1,0 +1,8 @@
+# Discovery scanner (Phase 6): which source paths belong to which registered agent. A file under
+# one of these paths is attributed to that agent; anything else the scanner finds becomes a
+# `shadow` agent. Paths are relative to where `agentguard scan` runs.
+identity_config: config/identity.yaml
+gateway_config: config/gateway.yaml
+agents:
+  research-bot:
+    sources: [src/agentguard/agent, config/agent.baseline.yaml, config/agent.guarded.yaml]
