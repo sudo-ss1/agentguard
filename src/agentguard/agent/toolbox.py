@@ -3,7 +3,7 @@ the scripted driver. (langchain-mcp-adapters 0.3 does not support mcp 2.x yet.)"
 
 import json
 from contextlib import AsyncExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Self
 
 from langchain_core.tools import StructuredTool, ToolException
@@ -46,7 +46,7 @@ class ToolCallError(ToolException):
 
 @dataclass
 class ToolResult:
-    text: str
+    text: str = field(repr=False)  # the raw tool result; never in a repr
     is_error: bool
 
 

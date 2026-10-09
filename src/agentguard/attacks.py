@@ -55,7 +55,8 @@ class Outcome:
     detail: str
     agent_error: str | None = None  # the LLM run ended in an exception (timeout, step limit...)
     # Every tool call the agent made, as (tool, arguments), from the harness's own call log.
-    calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    # Raw arguments, so kept out of the repr.
+    calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list, repr=False)
 
 
 def load_scenario(scenario_id: int) -> Scenario:

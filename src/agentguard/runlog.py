@@ -42,7 +42,8 @@ class TrialRecord:
     # ended. A refused call changes nothing, so these are the refusals that prevented damage.
     attack_calls_refused_target_existed: int = 0
     attack_calls_undecided: int = 0  # stopped only by an approval timeout/error
-    refusals: list[dict[str, Any]] = field(default_factory=list)
+    # Each holds the refused call's target (a raw argument), so kept out of the repr.
+    refusals: list[dict[str, Any]] = field(default_factory=list, repr=False)
     # How the trial's denials were decided (receipt denial_class -> count). Approval
     # timeouts/errors are not the gateway blocking anything, so results report them apart.
     denial_classes: dict[str, int] = field(default_factory=dict)

@@ -2,7 +2,7 @@
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -14,9 +14,9 @@ from agentguard.identity.service import registration_proof
 @dataclass(frozen=True)
 class Credentials:
     name: str
-    key: AgentKey
+    key: AgentKey = field(repr=False)  # holds the private key
     vc: str | None  # its credential (None for an unregistered caller)
-    token: str | None  # its root Biscuit, or a token delegated to it
+    token: str | None = field(repr=False)  # its root Biscuit, or a token delegated to it
 
 
 @dataclass(frozen=True)

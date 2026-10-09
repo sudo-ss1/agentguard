@@ -9,13 +9,13 @@ Verifiers (the gateway) only need the service's issuer DID; they never call it.
 import json
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import yaml
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agentguard.identity import jose
 from agentguard.identity.didkey import AgentKey
@@ -51,7 +51,8 @@ class RegistrationError(Exception):
 class Registration:
     profile: AgentProfile
     vc: str
-    token: str  # root Biscuit: the VC's tools as rights, owned by the agent's DID
+    # root Biscuit: the VC's tools as rights, owned by the agent's DID. Kept out of the repr.
+    token: str = field(repr=False)
 
 
 class IdentityService:
@@ -111,7 +112,7 @@ def registration_proof(key: AgentKey, name: str, now: datetime | None = None) ->
 
 
 class RegisterRequest(BaseModel):
-    registration: str
+    registration: str = Field(repr=False)  # a signed proof of key possession
 
 
 def create_app(service: IdentityService) -> FastAPI:

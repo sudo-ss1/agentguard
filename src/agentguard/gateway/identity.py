@@ -13,7 +13,7 @@ unverified callers and write a receipt, so forgery attempts are logged like any 
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -35,7 +35,7 @@ class Identity:
     """The outcome of verifying one request. `profile` is set only if every check passed."""
 
     profile: AgentProfile | None
-    token: str | None = None
+    token: str | None = field(default=None, repr=False)  # a bearer credential
     error: str | None = None
 
     @property

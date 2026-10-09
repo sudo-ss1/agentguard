@@ -32,7 +32,7 @@ class CallContext:
     agent_id: str | None  # the verified agent name (from its credential), None if unverified
     tool: str
     server: str | None  # upstream that serves the tool, None if unknown
-    arguments: dict[str, Any]
+    arguments: dict[str, Any] = field(repr=False)  # raw: may hold a secret; never in a repr
     input_schema: dict[str, Any] = field(default_factory=dict)
     identity: "Identity | None" = None
 

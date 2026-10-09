@@ -23,7 +23,8 @@ class Acting(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     agent: str  # who actually sends the request (and, from Phase 3, holds the signing key)
-    token: str | None = None  # whose token it presents; None means its own
+    # whose token it presents; None means its own. A credential, so kept out of the repr.
+    token: str | None = Field(default=None, repr=False)
     claims: str | None = None  # the identity it asserts, if not its own
 
     @property
@@ -37,7 +38,7 @@ class Step(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     tool: str | None = None
-    args: dict[str, Any] = {}
+    args: dict[str, Any] = Field(default_factory=dict, repr=False)  # raw tool arguments
     repeat: int = 1
     action: Literal["rug_pull", "refresh_tools"] | None = None
     acting: Acting | None = Field(default=None, alias="as")

@@ -219,8 +219,9 @@ def _hidden_spans(text: str) -> list[tuple[int, int, str]]:
 
 @dataclass
 class Stripped:
-    visible: str
-    removed: list[tuple[str, str]] = field(default_factory=list)  # (category, content)
+    # Tool result content, visible and hidden: neither is ever in a repr.
+    visible: str = field(repr=False)
+    removed: list[tuple[str, str]] = field(default_factory=list, repr=False)  # (category, content)
 
 
 def strip_hidden(text: str) -> Stripped:
@@ -303,7 +304,7 @@ class ScanResult:
 
     findings: list[str] = field(default_factory=list)  # rule / detector ids, never text
     stripped: dict[str, int] = field(default_factory=dict)
-    stripped_content: str = ""
+    stripped_content: str = field(default="", repr=False)
     taint: bool = False
     untrusted: bool = False
     classifier: dict[str, Any] | None = None
