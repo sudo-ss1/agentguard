@@ -69,7 +69,7 @@ with `--require-checkpoint`, some receipt not covered by a verified checkpoint),
 Measured 2026-09-30 with `bench/latency.py` (200 calls per tool per round), end to end through
 a local guarded lab, on the WSL2 machine with other work running (load average about 1.1–1.4 on
 6 cores). Each round ran four labs in turn: direct (no gateway), the Phase 4 gateway (commit
-`1c9a963`, no ledger), and this gateway in batched and in strict mode. "Added" is each mode
+`5bae7c8`, no ledger), and this gateway in batched and in strict mode. "Added" is each mode
 minus that round's direct run; "ledger cost" is minus that round's Phase 4 run, which isolates
 the ledger from the rest of the gateway.
 
