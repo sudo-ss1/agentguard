@@ -400,3 +400,5 @@ The budget is under 20 ms added per call.
   article (CC BY-SA 4.0); see `tests/data/NOTICE*`
 - Downloaded at runtime by `agentguard eval fetch`, not included in the repo: garak prompts and
   the deepset test split.
+- Not included in the repo, and obtained by hand only if the classifier is enabled: the ProtectAI
+  injection classifier (Apache-2.0); see [docs/phase4-design.md](docs/phase4-design.md#obtaining-the-classifier-model-by-hand).

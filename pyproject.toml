@@ -32,7 +32,8 @@ dependencies = [
 
 [project.optional-dependencies]
 anthropic = ["langchain-anthropic>=0.3"]
-# Only for building the int8 injection-classifier model (`agentguard models build`), not at runtime.
+# Only for exporting the int8 injection-classifier model by hand (docs/phase4-design.md,
+# "Obtaining the classifier model"), not at runtime.
 models = ["onnx>=1.16"]
 # Only for the scanner evaluation (`agentguard eval`): reading deepset's Parquet files, and
 # splitting results by language.

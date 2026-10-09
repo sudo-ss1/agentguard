@@ -126,6 +126,52 @@ never creates an approval request.
 - **Docker:** the model is downloaded at build time only once the classifier is enabled. For
   now nothing is downloaded.
 
+### Obtaining the classifier model (by hand)
+
+The model isn't in the repo, and no AgentGuard command downloads it (`agentguard eval fetch`
+fetches only the evaluation corpora). It is needed only if `classifier.enabled` is set, which
+it isn't by default. To obtain it:
+
+1. Download ProtectAI's own ONNX export at the pinned revision into the folder the gateway
+   reads (`ClassifierConfig.model_dir`):
+
+   ```bash
+   uv sync --extra models
+   uv run python - <<'PY'
+   from huggingface_hub import hf_hub_download
+   for name in ["model.onnx", "tokenizer.json", "tokenizer_config.json",
+                "special_tokens_map.json", "config.json"]:
+       hf_hub_download("protectai/deberta-v3-base-prompt-injection-v2", f"onnx/{name}",
+                       revision="90c9989b1a342275dd0d1a95aad283c04e075671",
+                       local_dir="models/protectai-deberta-v3-base-prompt-injection-v2")
+   PY
+   ```
+
+2. Quantize the weights to int8 (dynamic quantization, onnxruntime's defaults otherwise):
+
+   ```bash
+   uv run python -c "
+   from onnxruntime.quantization import quantize_dynamic, QuantType
+   d = 'models/protectai-deberta-v3-base-prompt-injection-v2/onnx/'
+   quantize_dynamic(d + 'model.onnx', d + 'model.int8.onnx', weight_type=QuantType.QInt8)"
+   ```
+
+   onnxruntime prints a warning suggesting pre-processing first; it was not applied.
+
+3. Check the hashes:
+
+   | File | SHA-256 |
+   | --- | --- |
+   | `onnx/model.onnx` (ProtectAI's export, fp32, 739 MB) | `f0ea7f239f765aedbde7c9e163a7cb38a79c5b8853d3f76db5152172047b228c` |
+   | `onnx/model.int8.onnx` (the file the gateway loads, 244 MB) | `95066b0f5017243ee7194e3f3edb32d64513394a91c1be1d75b3115f63f1570a` |
+   | `onnx/tokenizer.json` | `752fe5f0d5678ad563e1bd2ecc1ddf7a3ba7e2024d0ac1dba1a72975e26dff2f` |
+
+The gateway refuses to load an `model.int8.onnx` whose hash differs (`model_sha256` in
+`ClassifierConfig`). Step 2 was re-run on 2026-10-09 from the downloaded fp32 file and
+produced the pinned int8 hash exactly, with onnxruntime 1.30.0 and onnx 1.23.1
+(huggingface_hub 1.33.0). Other onnxruntime versions may quantize to different bytes; if the
+hash doesn't match, use those versions. The model is Apache-2.0.
+
 ### Rules-only cost
 
 Vigil and both structural detectors, 200 scans per size:
