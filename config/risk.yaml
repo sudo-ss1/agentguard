@@ -1,0 +1,10 @@
+# Risk scores (Phase 6, docs/phase6-design.md). The weights are judgment calls, good to about
+# one significant figure: the score ranks agents and explains why, it is not a probability.
+weights:
+  privilege: 0.30         # how much it can do: its most dangerous tool, and standing credentials
+  data_sensitivity: 0.20  # what its policies let it read
+  autonomy: 0.20          # whether a person approves its side effects
+  supply_chain: 0.15      # lower: the gateway already enforces pins
+  anomaly: 0.15           # lower: the lab's histories are short
+window_s: 3600
+min_baseline_calls: 20

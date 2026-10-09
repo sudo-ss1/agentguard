@@ -124,6 +124,10 @@ denylist: each `-c` override closes one known hole, and an unknown one stays ope
 - `objects/info/alternates` would make the store read other repos' objects from anywhere on
   disk. A repo that has one is listed in `not_scanned`.
 - Resource limits: the same per-blob size cap, and a cap on commits walked, reported if hit.
+  The size cap is applied after a blob is loaded: dulwich has no public way to read an object's
+  size without decompressing it, and doing so for packed objects (including delta targets)
+  would mean parsing pack internals that change between versions. A hostile repo can
+  therefore still cost memory.
 - Licence: Apache-2.0 OR GPL-2.0-or-later; used under Apache-2.0. Pinned to 1.2.15, the
   newest release at least two weeks old on 2026-10-09 (1.2.17 was six days old).
 - The test is a fixture repo whose config sets every executing hook found above (textconv,
@@ -166,6 +170,30 @@ registered is treated as risky until shown otherwise.
 
 Score ≈ 42. With a committed key in its sources, privilege becomes 1.0 and the score ≈ 54,
 with the finding named in the breakdown.
+
+### Implementation notes (risk engine)
+
+`agentguard risk --inventory inventory.json [--gateway-config] [--policy-dir] [--pins]
+[--receipts --public-key [--checkpoints]] [--risk-config config/risk.yaml] [--json]`
+
+- **Missing inputs are unknown.** Without `--gateway-config`, autonomy is unknown; without
+  policies, data sensitivity; without `--pins`, supply chain; without `--receipts`, or with no
+  `--public-key` to verify them, anomaly. Each scores 1 and is marked.
+- **Known zeros aren't unknowns.** An agent with no tools reaches no servers (supply chain 0);
+  one with no read tools reads nothing (data sensitivity 0); one with a verified ledger and no
+  recent calls has no anomaly (0).
+- **The new-tool signal needs a baseline.** It counts only when the agent has at least
+  `min_baseline_calls` (20) calls before the window. With fewer, it is skipped and the reason
+  says so, rather than scored as worst case: otherwise every new agent's first calls would
+  all look anomalous.
+- **Denials** count when blocked on the merits (`denial_class` policy or guard). Approval
+  timeouts and errors don't.
+- **Kill-switch trips** are read from `kill-switch` denials and budget denials whose summary
+  says the switch tripped. Phase 6's control receipts (step 4) add a direct record.
+- **Cedar probes** call the gateway's own `CedarCheck`. A probe that errors counts as
+  permitted, the riskier answer.
+- **Signing.** Nothing in the lab is signed, so every server gets the +0.5 for unsigned.
+- **Rounding** is half up (41.5 → 42).
 
 ## Control receipts
 

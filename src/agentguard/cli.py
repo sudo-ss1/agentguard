@@ -652,3 +652,74 @@ def fingerprint(key_file: KeyFileOpt = None) -> None:
     typer.echo(
         secret_fingerprint(load_or_create_key(key_file or get_settings().scanner_key_path), secret)
     )
+
+
+@app.command()
+def risk(
+    inventory: Annotated[Path, typer.Option(help="An inventory from `agentguard scan`.")],
+    risk_config: Annotated[Path, typer.Option(help="Weights and tool tiers.")] = Path(
+        "config/risk.yaml"
+    ),
+    gateway_config: Annotated[
+        Path | None, typer.Option(help="The gateway's config: approvals and policy dir.")
+    ] = None,
+    policy_dir: Annotated[
+        Path | None, typer.Option(help="Cedar policies (default: the gateway config's).")
+    ] = None,
+    pins: Annotated[Path | None, typer.Option(help="The gateway's pins.json.")] = None,
+    receipts: Annotated[Path | None, typer.Option(help="The ledger (receipts.jsonl).")] = None,
+    public_key: Annotated[
+        str | None, typer.Option(help="The ledger's pinned public key, to verify it first.")
+    ] = None,
+    checkpoints: Annotated[Path | None, typer.Option(help="The ledger's checkpoints.")] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Print JSON.")] = False,
+) -> None:
+    """Score each agent 0-100, with the breakdown behind every score. Read-only.
+
+    Any input not given (or not readable) counts as worst case and is marked unknown.
+    """
+    from agentguard.gateway.checks import CallContext
+    from agentguard.guards.approvals import ApprovalConfig
+    from agentguard.ledger.keys import load_public
+    from agentguard.ledger.read import calls
+    from agentguard.ledger.verify import VerifyInputError, verify
+    from agentguard.policy.cedar import CedarCheck
+    from agentguard.risk import GatewayView, Ledger, assess, load_risk_config, text_report
+
+    config = load_risk_config(risk_config)
+    view = GatewayView()
+    if gateway_config is not None:
+        raw = yaml.safe_load(gateway_config.read_text()) or {}
+        approvals = ApprovalConfig.model_validate((raw.get("guards") or {}).get("approvals") or {})
+        view.needs_approval = approvals.always
+        policy_dir = policy_dir or Path(raw.get("policy_dir", "config/policies"))
+    if policy_dir is not None and policy_dir.is_dir():
+        cedar = CedarCheck(policy_dir)
+
+        def probe(agent: str, tool: str, path: str) -> bool:
+            try:
+                return cedar.evaluate(CallContext(agent, tool, None, {"path": path})).allowed
+            except Exception:  # fail closed: an error counts as permitted, the riskier answer
+                return True
+
+        view.probe = probe
+    if pins is not None and pins.is_file():
+        view.pins = json.loads(pins.read_text())
+    ledger = None
+    if receipts is not None:
+        if public_key is None:
+            ledger = Ledger(False, "no public key pinned to verify it")
+        else:
+            try:
+                report = verify(receipts, load_public(public_key), checkpoints)
+            except (VerifyInputError, ValueError, OSError) as exc:
+                ledger = Ledger(False, f"cannot verify ({type(exc).__name__})")
+            else:
+                first = report.first_broken
+                detail = "intact" if first is None else f"{first.check} at line {first.line}"
+                ledger = Ledger(report.intact, detail, calls(receipts) if report.intact else [])
+    results = assess(json.loads(inventory.read_text()), config, view, ledger)
+    if as_json:
+        typer.echo(json.dumps([r.as_dict(config) for r in results], indent=2))
+    else:
+        typer.echo(text_report(results, config))
