@@ -33,6 +33,12 @@ def test_success_and_baseline():
     assert scripted_verdict(False, None) == "blocked"  # baseline has no gateway log
 
 
+def test_a_detection_scenario_is_reported_as_detected_never_blocked():
+    assert scripted_verdict(False, {}, detection=True) == "detected"
+    assert scripted_verdict(False, None, detection=True) == "detected"
+    assert scripted_verdict(True, {}, detection=True) == "attack succeeded"
+
+
 def test_denial_classes_counts_only_denials():
     rows = [
         receipt("allow"),

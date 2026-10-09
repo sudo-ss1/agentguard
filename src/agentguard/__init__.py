@@ -1,1 +1,1 @@
-CURRENT_PHASE = 5  # the roadmap phase the code implements; gates which attack tests must pass
+CURRENT_PHASE = 6  # the roadmap phase the code implements; gates which attack tests must pass

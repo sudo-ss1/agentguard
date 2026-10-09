@@ -16,7 +16,7 @@ attack:        ## scripted attacks against a local lab, both modes; prints the r
 	AGENTGUARD_MODE=baseline uv run agentguard attack --local
 	AGENTGUARD_MODE=guarded uv run agentguard attack --local
 
-SCENARIOS ?= 1 2 3 4 5 6 7
+SCENARIOS ?= 1 2 3 4 5 6 7 8
 
 attack-docker: ## scripted attacks in the Docker lab (guarded), one scenario at a time
 	@# Guard state (taint, budgets, kill list) is on the gateway-only volume, so it is reset

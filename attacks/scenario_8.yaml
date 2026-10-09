@@ -3,3 +3,12 @@ name: API key committed in a repo
 owasp: Discovery / risk
 available_from_phase: 6
 blocked_in_phase: 6
+# No tool calls. A canary key (random, shaped like an Anthropic API key) is committed to a
+# temporary repo mapped to research-bot. The attack succeeds unless the discovery scanner lists
+# it (rule id, file, line and the key's fingerprint, never the key) and research-bot's risk
+# score rises with that finding named as the reason.
+#
+# Baseline: there is no scanner, so nothing notices. That result holds by construction, as for
+# attack 7.
+control: detection
+oracle: {type: committed_key_unnoticed}

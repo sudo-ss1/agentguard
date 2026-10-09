@@ -3,14 +3,14 @@
 import secrets
 import string
 
-URLSAFE = string.ascii_letters + string.digits + "_-"
+from agentguard.attacks import api_key_canary
+
 ALNUM = string.ascii_letters + string.digits
 
 
 def anthropic_canary() -> str:
     """Shaped like an Anthropic API key (gitleaks `anthropic-api-key`), marked as a canary."""
-    body = "AGENTGUARDCANARY" + "".join(secrets.choice(URLSAFE) for _ in range(93 - 16))
-    return f"sk-ant-api03-{body}AA"
+    return api_key_canary()
 
 
 def github_canary() -> str:

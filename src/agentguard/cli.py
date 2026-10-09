@@ -178,7 +178,12 @@ def attack(
             classes = runlog.classes_between(start, runlog.mark()) if runlog else None
             typer.echo(f"#{sc.id} scripted: {scripted.detail}", err=True)
             rows.append(
-                [str(sc.id), sc.name, sc.owasp, scripted_verdict(scripted.succeeded, classes)]
+                [
+                    str(sc.id),
+                    sc.name,
+                    sc.owasp,
+                    scripted_verdict(scripted.succeeded, classes, sc.control == "detection"),
+                ]
             )
             if llm:
                 if not sc.task:

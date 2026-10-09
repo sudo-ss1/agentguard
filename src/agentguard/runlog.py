@@ -64,12 +64,17 @@ def denial_classes(receipts: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
-def scripted_verdict(attack_succeeded: bool, classes: dict[str, int] | None) -> str:
+def scripted_verdict(
+    attack_succeeded: bool, classes: dict[str, int] | None, detection: bool = False
+) -> str:
     """'blocked' only if a policy or guard decision stopped it. A scenario stopped only by an
     approval timeout/error is undecided, and one stopped only by a human's "no" is reported as
-    such, never as the gateway blocking the attack."""
+    such, never as the gateway blocking the attack. A detection scenario (attack 8) is reported
+    as detected: nothing was blocked, the thing was found and flagged."""
     if attack_succeeded:
         return "attack succeeded"
+    if detection:
+        return "detected"
     if classes is None:  # no gateway log (baseline, or Docker without a run log)
         return "blocked"
     if classes.get("policy") or classes.get("guard"):
