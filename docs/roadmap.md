@@ -58,6 +58,8 @@ local lab (`make attack`) and in Docker (`make attack-docker`).
   secret. Any repr of it (a log line, a traceback, a failed test assertion) would have shown the
   value. The secret field is now left out of the repr, and the discovery scanner's own types
   never show content.
+  - The same applies to `GuardResult.attributes` and `Decision.attributes`, which carry the
+    matched secret in memory for the receipt's commitment. Both are left out of the repr too.
   - **No exposure found.** No code logs, formats or reprs a `SecretFinding`: it is created in
     `scan_arguments` and only its fields are read, by `SecretScanGuard`. Searched with the
     gitleaks rules and for repr-shaped text (`SecretFinding(rule_id`, `'secret': '`):

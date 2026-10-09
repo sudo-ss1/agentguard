@@ -26,8 +26,9 @@ class GuardResult:
     verdict: GuardVerdict
     reason: str = ""
     guard_id: str = ""
-    # Like Decision.attributes: in memory only, redacted by the receipt log (option C).
-    attributes: dict[str, Any] = field(default_factory=dict)
+    # Like Decision.attributes: in memory only, redacted by the receipt log (option C). They can
+    # hold a matched secret, so they are left out of the repr (logs, tracebacks, test output).
+    attributes: dict[str, Any] = field(default_factory=dict, repr=False)
 
 
 NO_OBJECTION = GuardResult("no-objection")

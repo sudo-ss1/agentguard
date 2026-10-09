@@ -18,8 +18,9 @@ class Decision:
     reason: str  # a short summary with no argument values in it
     policy_id: str
     # The attributes the decision was made on (e.g. the normalized path). In memory only: the
-    # receipt log records them coarsened or as salted commitments (see receipts.py).
-    attributes: dict[str, Any] = field(default_factory=dict)
+    # receipt log records them coarsened or as salted commitments (see receipts.py). They can
+    # hold a matched secret, so they are left out of the repr (logs, tracebacks, test output).
+    attributes: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @property
     def allowed(self) -> bool:

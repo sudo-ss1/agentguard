@@ -6,7 +6,10 @@ import string
 
 import pytest
 
-from agentguard.guards.secrets import RULES_PATH, RULES_SHA256, SecretScanner
+from agentguard.gateway.checks import CallContext, Decision
+from agentguard.guards import combine
+from agentguard.guards.secrets import RULES_PATH, RULES_SHA256, SecretScanGuard, SecretScanner
+from tests.canaries import assert_absent
 from tests.gateway_helpers import call, ctx, receipts
 
 CANARY_KEY = (RULES_PATH.parents[4] / "lab/rootfs/home/agent/.ssh/id_rsa").read_text()
@@ -117,3 +120,14 @@ async def test_api_key_in_a_url_is_denied_without_recording_it(gateway):
 async def test_benign_call_passes_the_scanner(gateway):
     result = await gateway.on_call_tool(ctx("research-bot"), call("read_file", path="notes.txt"))
     assert not result.is_error
+
+
+def test_a_secret_never_shows_in_a_guard_result_or_decision_repr():
+    """Both carry the matched secret in `attributes` (for the receipt's commitment); a repr in
+    a log line, traceback or failed assertion must not show it."""
+    context = CallContext("research-bot", "send_email", "email", {"body": f"key {GITHUB_PAT}"})
+    result = SecretScanGuard().check(context)
+    assert result.verdict == "deny" and result.attributes["secret"] == GITHUB_PAT
+    decision = combine(Decision("allow", "permitted", "p"), [result])
+    assert decision.attributes["secret"] == GITHUB_PAT
+    assert_absent([GITHUB_PAT], repr(result), str(result), repr(decision), str(decision))
