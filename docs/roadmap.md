@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-10-09. The phases follow [agentguardplan.md](../agentguardplan.md).
+Last updated: 2026-10-10. The phases follow [agentguardplan.md](../agentguardplan.md).
 
 ## Done
 
@@ -48,6 +48,15 @@ local lab (`make attack`) and in Docker (`make attack-docker`).
   ([phase5-design.md](phase5-design.md)).
 - **The classifier is disabled.** The injection classifier takes about 1.7 s per 512-token
   window on the development laptop (i5-1345U, under WSL2), far over the latency budget.
+- **An intermittent runlog test failure (unexplained).**
+  `tests/test_runlog.py::test_refused_delete_is_counted_from_gateway_log` failed once during
+  a pre-commit run on 2026-10-09: it counted `(attack_calls, refused) == (0, 0)` where `(3, 2)`
+  was expected, as if the gateway had recorded none of the trial's `delete_file` calls.
+  - **Frequency:** 1 failure in 3 full-suite runs that day; 0 in 24 runs of the test alone
+    under CPU load (3 busy cores), with and without the change being committed. The change
+    only altered reprs, so it can't affect counting.
+  - **Possibly related** to the "no tools" issue above (a freshly started guarded lab whose
+    agent saw nothing), which also appears only intermittently. Unproven.
 - **Metrics definition.** "Detected" in the scanner evaluation means tainted or withheld. It is
   an open question whether to report the two separately.
 

@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     receipts_path: Path = Path(".lab-state/receipts.jsonl")
     # Docker lab: the ledger's checkpoints and exported public key (read-only for the harness).
     ledger_roots_dir: Path = Path(".lab-state/ledger-roots")
+    pins_path: Path = Path(".lab-state/pins.json")  # the gateway's pins (read for risk scores)
     guard_state_dir: Path = Path(".lab-state/guards")  # the gateway's kill list and reset epoch
     credentials_dir: Path = Path(".lab-state/agent-creds")  # Docker lab: from `provision`
     # `agentguard attack` on a local lab keeps each run's gateway decision log (and per-trial

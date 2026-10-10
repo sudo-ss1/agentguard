@@ -106,6 +106,7 @@ services:
       OUTBOX_PATH: /lab-state/outbox.jsonl
       RUGPULL_FLAG: /lab-state/rugpull.flag
       RECEIPTS_PATH: /ledger/receipts.jsonl
+      PINS_PATH: /lab-state/pins.json
       LEDGER_ROOTS_DIR: /ledger-roots
       CREDENTIALS_DIR: /agent-creds
     # The harness reads receipts and checkpoints; it can never write them or read the key.

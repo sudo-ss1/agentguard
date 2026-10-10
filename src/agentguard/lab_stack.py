@@ -45,6 +45,7 @@ class Lab:
     guard_state_dir: Path | None = None  # kill list and reset epoch (guarded labs)
     ledger_roots_dir: Path | None = None  # checkpoints and the exported public key
     ledger_public_key: bytes | None = None  # pinned when the lab starts
+    pins_path: Path | None = None  # the gateway's tool-description pins (read for risk scores)
 
     def identity_for(self, acting: Acting | None = None) -> str | Credentials:
         """What a toolbox presents for `acting` (the lab agent by default).
@@ -176,6 +177,7 @@ def local_lab(
             if guarded:
                 identity = _provision_identities(lab, start, tmp, procs)
                 lab.receipts_path = logs / "receipts.jsonl"
+                lab.pins_path = logs / "pins.json"
                 lab.salts_path = logs / "receipt-salts.jsonl"
                 lab.guard_state_dir = tmp / "guards"
                 config = tmp / "gateway.yaml"

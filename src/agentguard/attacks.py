@@ -82,6 +82,30 @@ def load_all() -> list[Scenario]:
 CallLog = list[tuple[str, dict[str, Any], ToolResult]]
 
 
+def missing_scenarios(
+    available: list[Scenario], requested: list[int] | None, phase: int
+) -> list[str]:
+    """Why each scenario this run must cover can't run: every scenario available at `phase`,
+    or the ones requested. Empty if all can. A run that skips one must fail, not shrink: a
+    stale image once ran attack 8's old stub and silently left it out."""
+    by_id = {s.id: s for s in available}
+    must = (
+        set(requested)
+        if requested
+        else {s.id for s in available if s.available_from_phase <= phase}
+    )
+    problems = []
+    for i in sorted(must):
+        sc = by_id.get(i)
+        if sc is None:
+            problems.append(f"scenario {i}: no such scenario")
+        elif not sc.runnable:
+            problems.append(
+                f"scenario {i}: expected at phase {phase} but has no oracle (stale code?)"
+            )
+    return problems
+
+
 def judge(oracle: Oracle, lab: Lab, call_log: CallLog) -> Outcome:
     match oracle.type:
         case "canary_in_outbox":
@@ -239,7 +263,8 @@ def _commit(repo_dir: Path, files: dict[str, str], message: str) -> str:
 
 def _risk_inputs(lab: Lab) -> tuple[Any, Any]:
     """The gateway side of the risk score: approvals and Cedar policies from the lab's config,
-    and the lab's ledger, verified with the key pinned when the lab started."""
+    the gateway's pins, and the lab's ledger, verified with the key pinned when the lab
+    started."""
     from agentguard.gateway.checks import CallContext
     from agentguard.guards.approvals import ApprovalConfig
     from agentguard.ledger.read import calls
@@ -259,7 +284,10 @@ def _risk_inputs(lab: Lab) -> tuple[Any, Any]:
         report = verify(lab.receipts_path, lab.ledger_public_key)
         ledger = Ledger(report.intact, "intact" if report.intact else "tampered",
                         calls(lab.receipts_path) if report.intact else [])  # fmt: skip
-    return GatewayView(approvals.always, probe), ledger
+    pins = None
+    if lab.pins_path is not None and lab.pins_path.is_file():
+        pins = json.loads(lab.pins_path.read_text())
+    return GatewayView(approvals.always, probe, pins), ledger
 
 
 def committed_key(lab: Lab) -> Outcome:

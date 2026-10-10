@@ -12,7 +12,8 @@ from typing import Annotated
 import typer
 import yaml
 
-from agentguard.attacks import Scenario, load_all, run_llm, run_scripted
+from agentguard import CURRENT_PHASE
+from agentguard.attacks import Scenario, load_all, missing_scenarios, run_llm, run_scripted
 from agentguard.config import load_config
 from agentguard.identity.client import load_credentials, wait_for
 from agentguard.identity.provision import provision as run_provision
@@ -73,6 +74,7 @@ def open_lab(local: bool, log_dir: Path | None = None) -> Iterator[Lab]:
     )
     if guarded:  # credentials written by `agentguard provision`
         lab.credentials = load_credentials(s.credentials_dir)
+        lab.pins_path = s.pins_path
         # Pin the ledger's public key now, at setup, as a verifier would be given it.
         public_key_file = s.ledger_roots_dir / PUBLIC_KEY_FILE
         if public_key_file.exists():
@@ -151,14 +153,33 @@ def attack(
     ] = False,
     trials: Annotated[int, typer.Option(help="LLM trials per scenario.")] = 5,
     local: LocalOpt = False,
+    expect_phase: Annotated[
+        int | None,
+        typer.Option(
+            help="Fail unless every scenario available at this phase runs (default: "
+            "this code's phase; Docker runs pass the host's)."
+        ),
+    ] = None,
 ) -> None:
     """Run attack scenarios and print a markdown results table.
 
     With --local, the run's gateway decision log, a per-trial index (trials.jsonl) and the
-    table (results.md) are kept in <RUN_LOG_DIR>/<timestamp>/.
+    table (results.md) are kept in <RUN_LOG_DIR>/<timestamp>/. Exits 1 if any scenario the run
+    must cover can't run or produced no result.
     """
     s = get_settings()
-    scenarios = [x for x in load_all() if x.runnable and (not scenario or x.id in scenario)]
+    available = load_all()
+    problems = missing_scenarios(available, scenario, expect_phase or CURRENT_PHASE)
+    if problems:
+        for problem in problems:
+            typer.echo(f"attack run incomplete: {problem}", err=True)
+        raise typer.Exit(1)
+    scenarios = [x for x in available if x.runnable and (not scenario or x.id in scenario)]
+    must = (
+        set(scenario)
+        if scenario
+        else {x.id for x in available if x.available_from_phase <= (expect_phase or CURRENT_PHASE)}
+    )
     run_dir = new_run_dir(s.run_log_dir) if local else None
     guarded = s.agentguard_mode == "guarded"
 
@@ -203,6 +224,10 @@ def attack(
 
     with open_lab(local, log_dir=run_dir) as lab:
         rows = asyncio.run(go(lab))
+    not_run = sorted(must - {int(row[0]) for row in rows})
+    if not_run:
+        typer.echo(f"attack run incomplete: no result for scenario(s) {not_run}", err=True)
+        raise typer.Exit(1)
     header = ["#", "Attack", "OWASP", f"Scripted ({s.agentguard_mode})"]
     if llm:
         header.append(f"LLM success rate ({s.agentguard_mode})")
