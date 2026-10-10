@@ -301,6 +301,13 @@ StateDirOpt = Annotated[
 ]
 
 
+def _operator() -> str:
+    """Who is running the CLI, as recorded in control receipts: the OS user."""
+    import getpass
+
+    return f"cli:{getpass.getuser()}"
+
+
 def _guard_state(state_dir: Path | None):
     from agentguard.guards.state import GuardState
 
@@ -318,7 +325,7 @@ def kill(
     seen presenting, and so everything delegated from them."""
     if (agent is None) == (did is None):
         raise typer.BadParameter("pass exactly one of --agent or --did")
-    affected = _guard_state(state_dir).kill(reason, did=did, name=agent)
+    affected = _guard_state(state_dir).kill(reason, did=did, name=agent, by=_operator())
     typer.echo(f"killed {agent or did} ({len(affected)} DID(s) with recorded tokens)")
 
 
@@ -331,14 +338,14 @@ def revive(
     """Lift a kill."""
     if (agent is None) == (did is None):
         raise typer.BadParameter("pass exactly one of --agent or --did")
-    _guard_state(state_dir).revive(did=did, name=agent)
+    _guard_state(state_dir).revive(did=did, name=agent, by=_operator())
     typer.echo(f"revived {agent or did}")
 
 
 @guards_app.command("reset")
 def guards_reset(state_dir: StateDirOpt = None) -> None:
     """Revive every agent and clear budgets and taint in the running gateway."""
-    _guard_state(state_dir).reset()
+    _guard_state(state_dir).reset(by=_operator())
     typer.echo("guard state reset")
 
 

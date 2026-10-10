@@ -210,6 +210,27 @@ with the finding named in the breakdown.
 - A budget trip records its kill the same way, with `source: "budget-trip"`.
 - `ledger verify` and `ledger.read` treat `control` as a third receipt kind.
 
+### Implementation notes (control receipts)
+
+Code: `gateway/control.py`; the kill list's writers are in `guards/state.py`.
+
+- **Who and what.** Every write to `killed.json` records `last_change: {action, by, at}`.
+  `by` is `cli:<OS user>` for `agentguard kill`, `revive` and `guards reset`;
+  `gateway:budget` for a budget trip; `lab-harness` for the lab's resets. A hand edit has
+  none, so its receipt says `unknown`. Inside Docker the CLI runs as root (`cli:root`).
+- **Net changes.** A receipt records the difference since the gateway last looked, named after
+  the last write. Two kills in one refresh interval, or several while stopped, become one.
+- **When it looks:** on every call, on every refresh tick (`refresh_interval_s`) even with no
+  calls, and at startup.
+- **Not recorded:** a guard reset of an already empty list changes nothing in it. The budgets
+  and taint that a reset clears are in-memory state, not the list.
+- **Reasons.** A control receipt commits each kill's reason (option C). Decision receipts for
+  `kill-switch` denials have shown the same reason in the clear since Phase 4
+  (`kill_reason` is in `CLEAR_ATTRIBUTES`). The two are inconsistent.
+- **Measured in Docker** (2026-10-10, all eight attacks): attack 6's trip is a `kill` by
+  `gateway:budget` adding 26 entries (the DID and every token revocation id seen for it); the
+  reset before attack 7 is a `reset` by `cli:root` removing them. The ledger verifies intact.
+
 ## Dashboard
 
 - Views: inventory with risk breakdowns, recent calls (`ledger.read.calls`) with the

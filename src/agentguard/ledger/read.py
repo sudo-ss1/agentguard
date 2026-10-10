@@ -66,6 +66,20 @@ def calls(path: Path | None, start: int = 0, end: int | None = None) -> list[dic
     return out
 
 
+def last_receipt(path: Path | None, kind: str) -> dict[str, Any] | None:
+    """The body of the last ledger receipt of `kind`, or None."""
+    if path is None or not path.exists():
+        return None
+    data = path.read_bytes()
+    for line in reversed(data[: data.rfind(b"\n") + 1].splitlines()):
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if is_ledger_line(row) and row["body"].get("kind") == kind:
+            return dict(row["body"])
+    return None
+
+
 def receipt_at(path: Path, line: int) -> dict[str, Any]:
     """The receipt on a 1-based line, as `grep -n` shows it: its body, for a ledger line."""
     for i, text in enumerate(path.read_text().splitlines(), 1):

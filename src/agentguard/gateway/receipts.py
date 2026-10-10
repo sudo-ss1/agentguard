@@ -139,6 +139,17 @@ class ReceiptLog:
         seq, _ = self.ledger.append("decision", receipt)
         return seq
 
+    def control(self, fields: dict[str, Any], committed: dict[str, Any]) -> int:
+        """A control receipt (gateway/control.py). Values in `committed` are written only as
+        salted commitments, under `reasons`."""
+        receipt = dict(fields)
+        receipt["reasons"] = {
+            name: {"commitment": self.salts.commit("kill_reason", value)}
+            for name, value in sorted(committed.items())
+        }
+        seq, _ = self.ledger.append("control", receipt)
+        return seq
+
     def outcome(
         self,
         decision_seq: int,

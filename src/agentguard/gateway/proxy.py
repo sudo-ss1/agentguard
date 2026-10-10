@@ -33,6 +33,7 @@ from agentguard.gateway.checks import (
 )
 from agentguard.gateway.commitments import SaltStore
 from agentguard.gateway.config import GatewayConfig
+from agentguard.gateway.control import ControlRecorder
 from agentguard.gateway.identity import (
     CapabilityTokenCheck,
     Identity,
@@ -158,6 +159,12 @@ class Gateway:
             checkpoint_interval_s=ledger_config.checkpoint_interval_s,
         )
         self.receipts = ReceiptLog(self.ledger, SaltStore(config.salts_path))
+        # Kill-list changes become signed control receipts (Phase 6). One made while the
+        # gateway was stopped is recorded now, before any call is served; a failure here stops
+        # the gateway from starting.
+        self.control = ControlRecorder(self.receipts, self.guard_state)
+        self.control.startup(config.receipts_path)
+        self.guard_state.on_kill_list_change(self.control.observed)
         self.upstreams: dict[str, Client] = {}
         self.routes: dict[str, tuple[str, types.Tool]] = {}  # tool name -> (server, tool)
         self._stack = AsyncExitStack()
@@ -185,6 +192,10 @@ class Gateway:
     async def _refresh_loop(self) -> None:
         while True:
             await asyncio.sleep(self.config.refresh_interval_s)
+            try:  # a kill-list change is recorded even when no calls arrive
+                self.guard_state.refresh()
+            except Exception:
+                log.exception("could not check the kill list for changes")
             try:
                 await self.refresh()
             except Exception:

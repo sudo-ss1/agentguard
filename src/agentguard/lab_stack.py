@@ -72,7 +72,7 @@ class Lab:
         self.outbox_path.unlink(missing_ok=True)
         self.rugpull_flag.unlink(missing_ok=True)
         if self.guard_state_dir is not None:  # revive agents, clear budgets and taint
-            GuardState(self.guard_state_dir).reset()
+            GuardState(self.guard_state_dir).reset(by="lab-harness")
 
     def rug_pull(self) -> None:
         self.rugpull_flag.touch()

@@ -93,7 +93,7 @@ class BudgetGuard:
 
     def _trip(self, ctx: CallContext, why: str, attributes: dict) -> GuardResult:
         assert ctx.identity is not None and ctx.identity.profile is not None
-        self.state.kill(f"budget: {why}", did=ctx.identity.profile.did)
+        self.state.kill(f"budget: {why}", did=ctx.identity.profile.did, by="gateway:budget")
         return GuardResult(
             "deny",
             f"{why}; kill switch tripped",
