@@ -31,14 +31,16 @@ class KillSwitchCheck:
                 self.state.record_token(
                     identity.profile.did, identity.profile.name, revocation_ids[-1]
                 )
-        reason = self.state.killed_reason(
-            identity.profile.did, identity.profile.name, revocation_ids
-        )
-        if reason is not None:
+        entry = self.state.killed_entry(identity.profile.did, identity.profile.name, revocation_ids)
+        if entry is not None:
+            # The category is in the clear; the free-text reason is committed (receipts.py).
             return Decision(
                 "deny",
                 "agent is stopped by the kill switch",
                 "kill-switch",
-                {"kill_reason": reason},
+                {
+                    "kill_category": str(entry.get("category", "unknown")),
+                    "kill_reason": str(entry.get("reason", "")),
+                },
             )
         return Decision("allow", "not killed", "kill-switch")

@@ -4,16 +4,18 @@ The kill list (guards/state.py) is a file that the CLI, the lab harness and the 
 budget guard all write. The gateway is the ledger's only writer, so it records the changes it
 observes. One `control` receipt per change:
 
-    {"action": "kill-list", "change": "kill" | "revive" | "reset" | "unknown",
+    {"action": "kill-list",
+     "change": "kill" | "revive" | "reset" | "startup-diff" (a hand edit while stopped) | "unknown",
      "by": "cli:alice" | "gateway:budget" | "unknown",
      "added": {"dids": [...], "names": [...], "revocation_ids": [...]},
      "removed": {...},
-     "reasons": {"dids/did:key:z...": {"commitment": "..."}},
+     "reasons": {"dids/did:key:z...": {"category": "manual" | "budget" | "unknown",
+                                       "reason": {"commitment": "..."}}},
      "state": {"dids": [...], "names": [...], "revocation_ids": [...]},
      "digest": "<sha256 of the whole list>", "while_stopped": false}
 
-- Ids are public identifiers, in the clear. A kill's free-text reason is a salted commitment
-  (receipt option C), as the approved design says.
+- Ids are public identifiers, in the clear. A kill's category is in the clear and its free-text
+  reason a salted commitment (receipt option C), the same as in kill-switch denial receipts.
 - `change` and `by` come from the write itself (`last_change`). A hand edit has none: unknown.
 - A receipt records the net change since the gateway last looked. Several writes between two
   looks (or while it was stopped) become one receipt, named after the last write.
@@ -66,15 +68,19 @@ class ControlRecorder:
         added = {k: sorted(set(new.get(k, {})) - set(old.get(k, {}))) for k in KINDS}
         removed = {k: sorted(set(old.get(k, {})) - set(new.get(k, {}))) for k in KINDS}
         reasons = {
-            f"{k}/{i}": new[k][i].get("reason", "")
+            f"{k}/{i}": (str(entry.get("category", "unknown")), str(entry.get("reason", "")))
             for k in KINDS
             for i in added[k]
-            if isinstance(new[k][i], dict)
+            if isinstance(entry := new[k][i], dict)
         }
+        if change.get("action"):
+            what = str(change["action"])
+        else:  # a hand edit: no write recorded what it was
+            what = "startup-diff" if while_stopped else "unknown"
         return self.receipts.control(
             {
                 "action": "kill-list",
-                "change": str(change.get("action", "unknown")),
+                "change": what,
                 "by": str(change.get("by", "unknown")),
                 "added": added,
                 "removed": removed,
@@ -82,7 +88,7 @@ class ControlRecorder:
                 "digest": digest(new),
                 "while_stopped": while_stopped,
             },
-            committed=reasons,
+            reasons=reasons,
         )
 
 
@@ -151,5 +157,5 @@ class PinRecorder:
                 "digest": self.digest(new),
                 "while_stopped": while_stopped,
             },
-            committed={},
+            reasons={},
         )

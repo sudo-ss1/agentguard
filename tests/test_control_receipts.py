@@ -42,7 +42,8 @@ def test_a_cli_kill_is_recorded_with_who_and_a_committed_reason(gateway):
     assert c["added"] == {"dids": [], "names": ["research-bot"], "revocation_ids": []}
     assert c["removed"] == {"dids": [], "names": [], "revocation_ids": []}
     assert c["state"]["names"] == ["research-bot"] and c["while_stopped"] is False
-    assert set(c["reasons"]["names/research-bot"]) == {"commitment"}
+    reason = c["reasons"]["names/research-bot"]
+    assert reason["category"] == "manual" and set(reason["reason"]) == {"commitment"}
     assert REASON not in gateway.config.receipts_path.read_text()
 
 
@@ -69,6 +70,7 @@ async def test_a_budget_trip_is_recorded_as_the_gateways_own(gateway):
         await gateway.on_call_tool(ctx("research-bot"), call("list_dir", path="/workspace"))
     (c,) = controls(gateway)
     assert c["change"] == "kill" and c["by"] == "gateway:budget"
+    assert {r["category"] for r in c["reasons"].values()} == {"budget"}
     assert len(c["added"]["dids"]) == 1 and c["added"]["dids"][0].startswith("did:key:")
     # the trip is on record before the call that was refused because of it
     kinds = [
@@ -135,7 +137,8 @@ def test_a_hand_edit_while_stopped_is_recorded_with_an_unknown_author(gateway):
     restarted = Gateway(gateway.config)
     try:
         (c,) = controls(gateway)
-        assert (c["change"], c["by"], c["while_stopped"]) == ("unknown", "unknown", True)
+        assert (c["change"], c["by"], c["while_stopped"]) == ("startup-diff", "unknown", True)
+        assert c["reasons"]["names/research-bot"]["category"] == "unknown"
     finally:
         restarted.close()
 
@@ -151,7 +154,7 @@ def test_if_the_change_cannot_be_recorded_the_gateway_does_not_start(gateway, mo
     gateway.close()
     GuardState(gateway.config.guards.state_dir).kill("x", name="research-bot", by="cli:eve")
 
-    def fail(self, fields, committed):
+    def fail(self, fields, reasons):
         raise OSError("disk full")
 
     monkeypatch.setattr(ReceiptLog, "control", fail)
@@ -224,3 +227,25 @@ def test_the_pin_check_ignores_kill_list_receipts(gateway):
     cli(gateway, "kill", "--agent", "research-bot")  # the last control receipt is now a kill
     restart(gateway).close()
     assert len(controls(gateway, "pins")) == before
+
+
+def test_a_live_hand_edit_is_unknown_and_an_invented_category_is_refused(gateway):
+    path = gateway.config.guards.state_dir / "killed.json"
+    path.write_text(json.dumps({"names": {"research-bot": {"reason": "by hand"}}}))
+    gateway.guard_state.refresh()
+    (c,) = controls(gateway)
+    assert (c["change"], c["by"], c["while_stopped"]) == ("unknown", "unknown", False)
+    with pytest.raises(ValueError):
+        GuardState(gateway.config.guards.state_dir).kill("x", name="a", category="because")
+
+
+async def test_a_kill_reads_the_same_in_control_and_denial_receipts(gateway):
+    cli(gateway, "kill", "--agent", "research-bot", "--reason", REASON)
+    await gateway.on_call_tool(ctx("research-bot"), call("read_file", path="notes.txt"))
+    (control,) = controls(gateway)
+    (denial,) = receipts(gateway)
+    in_control = control["reasons"]["names/research-bot"]
+    in_denial = denial["reason"]["attributes"]
+    assert in_control["category"] == in_denial["kill_category"] == "manual"
+    assert set(in_control["reason"]) == set(in_denial["kill_reason"]) == {"commitment"}
+    assert REASON not in gateway.config.receipts_path.read_text()

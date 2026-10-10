@@ -40,7 +40,7 @@ CLEAR_ATTRIBUTES = frozenset(
         "limit",
         "window_s",
         "kill_switch",
-        "kill_reason",
+        "kill_category",  # a fixed category (manual, budget, unknown); the reason is committed
         "rule_id",  # a scanner rule's id, never the matched value
         "argument",  # which argument a finding was in, e.g. "body"
     }
@@ -139,13 +139,16 @@ class ReceiptLog:
         seq, _ = self.ledger.append("decision", receipt)
         return seq
 
-    def control(self, fields: dict[str, Any], committed: dict[str, Any]) -> int:
-        """A control receipt (gateway/control.py). Values in `committed` are written only as
-        salted commitments, under `reasons`."""
+    def control(self, fields: dict[str, Any], reasons: dict[str, tuple[str, str]]) -> int:
+        """A control receipt (gateway/control.py). `reasons` maps an entry to (category, free
+        text): the category is kept in the clear, the text only as a salted commitment."""
         receipt = dict(fields)
         receipt["reasons"] = {
-            name: {"commitment": self.salts.commit("kill_reason", value)}
-            for name, value in sorted(committed.items())
+            name: {
+                "category": category,
+                "reason": {"commitment": self.salts.commit("kill_reason", text)},
+            }
+            for name, (category, text) in sorted(reasons.items())
         }
         seq, _ = self.ledger.append("control", receipt)
         return seq

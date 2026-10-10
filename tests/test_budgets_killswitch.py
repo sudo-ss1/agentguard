@@ -179,4 +179,7 @@ async def test_kill_switch_denial_at_the_gateway(gateway):
     assert result.is_error and gateway.upstreams["files"].calls == []
     (receipt,) = receipts(gateway)
     assert receipt["policy_id"] == "kill-switch"
-    assert receipt["reason"]["attributes"]["kill_reason"] == "incident 42"
+    attributes = receipt["reason"]["attributes"]
+    assert attributes["kill_category"] == "manual"  # a fixed category, in the clear
+    assert set(attributes["kill_reason"]) == {"commitment"}  # free text, committed
+    assert "incident 42" not in gateway.config.receipts_path.read_text()

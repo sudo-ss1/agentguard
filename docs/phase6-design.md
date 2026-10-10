@@ -224,9 +224,11 @@ Code: `gateway/control.py`; the kill list's writers are in `guards/state.py`.
   calls, and at startup.
 - **Not recorded:** a guard reset of an already empty list changes nothing in it. The budgets
   and taint that a reset clears are in-memory state, not the list.
-- **Reasons.** A control receipt commits each kill's reason (option C). Decision receipts for
-  `kill-switch` denials have shown the same reason in the clear since Phase 4
-  (`kill_reason` is in `CLEAR_ATTRIBUTES`). The two are inconsistent.
+- **Reasons** (made consistent 2026-10-10). Each kill carries a fixed category in the clear,
+  `manual` (the CLI) or `budget` (a trip), or `unknown` for an entry without one, and its
+  free-text reason only as a commitment. Control receipts and `kill-switch` denial receipts
+  record both the same way. Until then, denial receipts had shown the free text in the clear
+  since Phase 4. A change found at startup with no recorded write is `startup-diff`.
 - **Pins and quarantines** are recorded the same way, as `action: "pins"`: each new pin and
   each quarantine as it happens (`by: gateway:pins`), and any edit made while the gateway was
   stopped (such as re-approving a server by editing the pins file) at its next start, as

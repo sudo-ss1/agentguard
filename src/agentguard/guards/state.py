@@ -38,6 +38,9 @@ def _now() -> str:
 
 
 KINDS = ("dids", "names", "revocation_ids")
+# Why an agent was stopped, as a fixed category that receipts keep in the clear: an operator's
+# kill, or a budget trip. An entry with no category (a hand edit) reads as "unknown".
+KILL_CATEGORIES = ("manual", "budget")
 KillList = dict[str, dict[str, dict[str, Any]]]  # kind -> id -> {reason, at, by}
 
 
@@ -114,25 +117,39 @@ class GuardState:
                 entry["name"] = name
                 self.seen_path.write_text(json.dumps(self._seen, indent=2, sort_keys=True))
 
-    def killed_reason(self, did: str, name: str, revocation_ids: list[str]) -> str | None:
+    def killed_entry(self, did: str, name: str, revocation_ids: list[str]) -> dict[str, Any] | None:
+        """The kill-list entry that stops this caller ({reason, category, at, by}), or None."""
         self.refresh()
         for kind, key in (("dids", did), ("names", name)):
             if key in self._killed[kind]:
-                return str(self._killed[kind][key]["reason"])
+                return dict(self._killed[kind][key])
         for rid in revocation_ids:
             if rid in self._killed["revocation_ids"]:
-                return str(self._killed["revocation_ids"][rid]["reason"])
+                return dict(self._killed["revocation_ids"][rid])
         return None
+
+    def killed_reason(self, did: str, name: str, revocation_ids: list[str]) -> str | None:
+        entry = self.killed_entry(did, name, revocation_ids)
+        return None if entry is None else str(entry.get("reason", ""))
 
     # --- operations (gateway budget trips, and the CLI) --------------------------------------
 
     def kill(
-        self, reason: str, did: str | None = None, name: str | None = None, by: str = "unknown"
+        self,
+        reason: str,
+        did: str | None = None,
+        name: str | None = None,
+        by: str = "unknown",
+        category: str = "manual",
     ) -> list[str]:
-        """Kill by DID or name. Returns the DIDs affected."""
+        """Kill by DID or name. Returns the DIDs affected. `category` is one of
+        KILL_CATEGORIES and is recorded in the clear; `reason` is free text and is only ever
+        committed in receipts."""
+        if category not in KILL_CATEGORIES:
+            raise ValueError(f"unknown kill category {category!r}")
         with self._lock:
             data = self._load_kill_file()
-            stamp = {"reason": reason, "at": _now(), "by": by}
+            stamp = {"reason": reason, "category": category, "at": _now(), "by": by}
             dids = [did] if did else [d for d, e in self._seen.items() if e.get("name") == name]
             if name:
                 data["names"][name] = stamp
