@@ -5,7 +5,7 @@ MCP tools, with verifiable agent identity and a tamper-evident audit log. It's a
 project. See [agentguardplan.md](agentguardplan.md) for the goals and the six-phase roadmap, and
 [docs/architecture.md](docs/architecture.md) for the design.
 
-**Status: Phases 1–5 complete; Phase 6 (visibility) built and in review.** The agent and
+**Status: Phases 1–6 complete; the write-up is next.** The agent and
 tools are still deliberately insecure. Putting the AgentGuard gateway in front of them
 (`AGENTGUARD_MODE=guarded`) blocks attacks 1–7 and detects attack 8:
 

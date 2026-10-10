@@ -11,7 +11,7 @@ Last updated: 2026-10-10. The phases follow [agentguardplan.md](../agentguardpla
 | 3 | Agent identity: did:key, Verifiable Credentials, DPoP-bound requests and Biscuit capability tokens with delegation (attacks 4–5) | [phase3-design.md](phase3-design.md) |
 | 4 | Runtime guards: secret scanning, human approval, budgets and a kill switch (attack 6); result scanning that strips hidden content; a scanner evaluation and LLM trials | [phase4-design.md](phase4-design.md), [eval-notes.md](eval-notes.md) |
 | 5 | Tamper-evident audit ledger: signed, hash-chained receipts, Merkle checkpoints, `agentguard ledger verify` (attack 7); Docker volume isolation for the key, salts and ledger | [phase5-design.md](phase5-design.md) |
-| 6 (in review) | Visibility: a discovery scanner (AI bill of materials, fingerprints only, history read with dulwich), an explainable risk score, control receipts for kill-list and pin changes, a local Streamlit dashboard (attack 8); gateway state moved out of reach of every other container | [phase6-design.md](phase6-design.md) |
+| 6 | Visibility: a discovery scanner (AI bill of materials, fingerprints only, history read with dulwich), an explainable risk score, control receipts for kill-list and pin changes, a local Streamlit dashboard (attack 8); gateway state moved out of reach of every other container | [phase6-design.md](phase6-design.md) |
 
 Attacks 1–7 succeed against the baseline and are blocked through the gateway, and attack 8
 goes unnoticed in the baseline and is detected through it, both on a local lab

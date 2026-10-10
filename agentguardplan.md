@@ -170,7 +170,7 @@ Phase checklist:
 - [x] Scanners, approvals, budgets and kill switch
   - Note: gateway latency p50 ranged 4.1–8.2 ms across runs in Phase 3, so re-measure over multiple runs once the scanners land.
 - [x] Tamper-evident audit ledger with verifier
-- [ ] Discovery scanner, risk engine and dashboard
+- [x] Discovery scanner, risk engine and dashboard
 - [ ] README, architecture diagram, blog post
 
 ## Demo scenarios and tests
