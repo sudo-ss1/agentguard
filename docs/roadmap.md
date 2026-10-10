@@ -32,6 +32,14 @@ local lab (`make attack`) and in Docker (`make attack-docker`).
   ([phase5-design.md](phase5-design.md)).
 - **Key rotation for the ledger.** Designed, not built.
 
+## Breaking changes
+
+- **`agentguard approvals approve/deny` no longer take `--approver`** (2026-10-10, Phase 6).
+  The approver recorded in the call's receipt is now the operating-system user running the
+  command, on the CLI and the dashboard alike, never a free-text name. A script that passed
+  `--approver` now gets a usage error: drop the option. Kill-list changes are recorded the
+  same way, as `cli:<user>` or `dashboard:<user>`.
+
 ## Known open issues
 
 - **"No tools" (unexplained).** In 2 of about 32 runs of the LLM-trial end-to-end test

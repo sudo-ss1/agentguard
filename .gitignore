@@ -8,3 +8,6 @@ __pycache__/
 run-logs/
 models/
 eval/data/
+
+# Playwright MCP screenshots and page snapshots (local tool output)
+.playwright-mcp/
