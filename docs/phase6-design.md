@@ -227,6 +227,12 @@ Code: `gateway/control.py`; the kill list's writers are in `guards/state.py`.
 - **Reasons.** A control receipt commits each kill's reason (option C). Decision receipts for
   `kill-switch` denials have shown the same reason in the clear since Phase 4
   (`kill_reason` is in `CLEAR_ATTRIBUTES`). The two are inconsistent.
+- **Pins and quarantines** are recorded the same way, as `action: "pins"`: each new pin and
+  each quarantine as it happens (`by: gateway:pins`), and any edit made while the gateway was
+  stopped (such as re-approving a server by editing the pins file) at its next start, as
+  `change: startup-diff` with an unknown author. Description hashes and the gateway's own
+  quarantine reasons are in the clear. Each startup check compares against the last receipt
+  of its own action.
 - **Measured in Docker** (2026-10-10, all eight attacks): attack 6's trip is a `kill` by
   `gateway:budget` adding 26 entries (the DID and every token revocation id seen for it); the
   reset before attack 7 is a `reset` by `cli:root` removing them. The ledger verifies intact.

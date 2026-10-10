@@ -4,12 +4,18 @@ The first time the gateway sees a tool it records a hash of its name, descriptio
 schema. If a pinned tool later changes, its whole server is quarantined: every tool it
 serves is hidden and every call to it is denied. To re-approve a server, stop the gateway
 and remove it from `quarantined` (and its old pins) in the pins file.
+
+Every change is audited (Phase 6): new pins and quarantines become signed control receipts as
+they happen, and an edit made while the gateway was stopped (such as a re-approval) is
+recorded when it starts (gateway/control.py).
 """
 
 import hashlib
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from mcp.types import Tool
 
@@ -39,9 +45,18 @@ class PinStore:
         data = json.loads(path.read_text()) if path.exists() else {}
         self.pins: dict[str, str] = data.get("pins", {})
         self.quarantined: dict[str, str] = data.get("quarantined", {})
+        self._observers: list[Callable[[dict[str, Any], dict[str, Any]], None]] = []
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"pins": dict(self.pins), "quarantined": dict(self.quarantined)}
+
+    def on_change(self, callback: Callable[[dict[str, Any], dict[str, Any]], None]) -> None:
+        """`callback(old, new)` runs after each change is saved."""
+        self._observers.append(callback)
 
     def verify(self, server: str, tools: list[Tool]) -> None:
         """Pin new tools and quarantine the server if a pinned tool changed."""
+        old = self.snapshot()
         changed = False
         for tool in tools:
             key, digest = f"{server}/{tool.name}", tool_hash(tool)
@@ -58,6 +73,8 @@ class PinStore:
                 log.warning("quarantined %s: %s", server, self.quarantined[server])
         if changed:
             self._save()
+            for observer in self._observers:
+                observer(old, self.snapshot())
 
     def evaluate(self, ctx: CallContext) -> Decision:
         if ctx.server in self.quarantined:

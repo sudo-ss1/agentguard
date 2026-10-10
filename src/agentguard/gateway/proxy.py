@@ -33,7 +33,7 @@ from agentguard.gateway.checks import (
 )
 from agentguard.gateway.commitments import SaltStore
 from agentguard.gateway.config import GatewayConfig
-from agentguard.gateway.control import ControlRecorder
+from agentguard.gateway.control import ControlRecorder, PinRecorder
 from agentguard.gateway.identity import (
     CapabilityTokenCheck,
     Identity,
@@ -165,6 +165,10 @@ class Gateway:
         self.control = ControlRecorder(self.receipts, self.guard_state)
         self.control.startup(config.receipts_path)
         self.guard_state.on_kill_list_change(self.control.observed)
+        # Pins and quarantines too: an edit while stopped (a re-approval) is recorded now.
+        self.pin_control = PinRecorder(self.receipts)
+        self.pin_control.startup(config.receipts_path, self.pins.snapshot())
+        self.pins.on_change(self.pin_control.observed)
         self.upstreams: dict[str, Client] = {}
         self.routes: dict[str, tuple[str, types.Tool]] = {}  # tool name -> (server, tool)
         self._stack = AsyncExitStack()

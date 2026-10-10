@@ -66,8 +66,8 @@ def calls(path: Path | None, start: int = 0, end: int | None = None) -> list[dic
     return out
 
 
-def last_receipt(path: Path | None, kind: str) -> dict[str, Any] | None:
-    """The body of the last ledger receipt of `kind`, or None."""
+def last_receipt(path: Path | None, kind: str, **match: Any) -> dict[str, Any] | None:
+    """The body of the last ledger receipt of `kind` whose fields equal `match`, or None."""
     if path is None or not path.exists():
         return None
     data = path.read_bytes()
@@ -75,7 +75,9 @@ def last_receipt(path: Path | None, kind: str) -> dict[str, Any] | None:
         if not line.strip():
             continue
         row = json.loads(line)
-        if is_ledger_line(row) and row["body"].get("kind") == kind:
+        if not is_ledger_line(row) or row["body"].get("kind") != kind:
+            continue
+        if all(row["body"].get(k) == v for k, v in match.items()):
             return dict(row["body"])
     return None
 

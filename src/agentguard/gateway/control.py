@@ -49,7 +49,7 @@ class ControlRecorder:
     def startup(self, ledger_path: Any) -> int | None:
         """Record a change made while the gateway was stopped. Returns the receipt's seq."""
         current = self.state.kill_list()
-        last = last_receipt(ledger_path, "control")
+        last = last_receipt(ledger_path, "control", action="kill-list")
         recorded = last.get("digest") if last else digest(EMPTY)
         if digest(current) == recorded:
             return None
@@ -83,4 +83,73 @@ class ControlRecorder:
                 "while_stopped": while_stopped,
             },
             committed=reasons,
+        )
+
+
+class PinRecorder:
+    """Pins and quarantines, recorded like the kill list:
+
+        {"action": "pins", "change": "pin" | "quarantine" | "pin+quarantine" | "startup-diff",
+         "by": "gateway:pins" | "unknown",
+         "added": {"pins": ["server/tool", ...], "quarantined": ["server", ...]},
+         "removed": {...}, "changed": {"pins": [...]},
+         "state": {"pins": {"server/tool": "<description hash>"},
+                   "quarantined": {"server": "<why>"}},
+         "digest": "...", "while_stopped": false}
+
+    Description hashes and the gateway's quarantine reasons are its own output, so they are in
+    the clear. A change while stopped is a hand edit of the pins file (the documented way to
+    re-approve a server), so its author is unknown.
+    """
+
+    def __init__(self, receipts: Any) -> None:
+        self.receipts = receipts
+
+    @staticmethod
+    def digest(snapshot: dict[str, Any]) -> str:
+        return hashlib.sha256(
+            jcs({k: snapshot.get(k, {}) for k in ("pins", "quarantined")})
+        ).hexdigest()
+
+    def startup(self, ledger_path: Any, snapshot: dict[str, Any]) -> int | None:
+        last = last_receipt(ledger_path, "control", action="pins")
+        empty: dict[str, Any] = {"pins": {}, "quarantined": {}}
+        previous = last.get("state", empty) if last else empty
+        if self.digest(snapshot) == (last.get("digest") if last else self.digest(empty)):
+            return None
+        return self.record(previous, snapshot, while_stopped=True)
+
+    def observed(self, old: dict[str, Any], new: dict[str, Any]) -> None:
+        self.record(old, new, while_stopped=False)
+
+    def record(self, old: dict[str, Any], new: dict[str, Any], *, while_stopped: bool) -> int:
+        added = {k: sorted(set(new[k]) - set(old.get(k, {}))) for k in ("pins", "quarantined")}
+        removed = {k: sorted(set(old.get(k, {})) - set(new[k])) for k in ("pins", "quarantined")}
+        changed = sorted(
+            p for p in new["pins"] if p in old.get("pins", {}) and old["pins"][p] != new["pins"][p]
+        )
+        if while_stopped:
+            change = "startup-diff"
+        else:
+            change = (
+                "+".join(
+                    name
+                    for name, keys in (("pin", added["pins"]), ("quarantine", added["quarantined"]))
+                    if keys
+                )
+                or "update"
+            )
+        return self.receipts.control(
+            {
+                "action": "pins",
+                "change": change,
+                "by": "unknown" if while_stopped else "gateway:pins",
+                "added": added,
+                "removed": removed,
+                "changed": {"pins": changed},
+                "state": {"pins": dict(new["pins"]), "quarantined": dict(new["quarantined"])},
+                "digest": self.digest(new),
+                "while_stopped": while_stopped,
+            },
+            committed={},
         )

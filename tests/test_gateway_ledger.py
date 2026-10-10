@@ -18,6 +18,11 @@ def bodies(gw) -> list[dict]:
     return [parse_line(line)["body"] for line in gw.config.receipts_path.read_bytes().splitlines()]
 
 
+def call_bodies(gw) -> list[dict]:
+    """Without the control receipts the gateway writes when it pins its upstreams at start."""
+    return [b for b in bodies(gw) if b["kind"] != "control"]
+
+
 def check(gw):
     gw.ledger.checkpoint()
     public = keys.load_public(gw.config.ledger.roots_dir / keys.PUBLIC_KEY_FILE)
@@ -35,10 +40,11 @@ async def test_the_decision_is_on_record_before_the_call_is_forwarded(gateway):
 
     upstream.call_tool = spying
     await gateway.on_call_tool(ctx("research-bot"), call("list_dir", path="/workspace"))
-    kinds = [b["kind"] for b in bodies(gateway)]
+    kinds = [b["kind"] for b in call_bodies(gateway)]
     assert kinds == ["genesis", "decision", "outcome"]
-    assert seen == [2]  # genesis + decision were written when the upstream was called
-    decision, outcome = bodies(gateway)[1:]
+    pinned = len(bodies(gateway)) - len(call_bodies(gateway))
+    assert seen == [2 + pinned]  # genesis, pins and the decision were written before the call
+    decision, outcome = call_bodies(gateway)[1:]
     assert decision["decision"] == "allow" and decision["agent_did"].startswith("did:key:")
     assert outcome["decision_seq"] == decision["seq"] and outcome["upstream_error"] is False
     (row,) = receipts(gateway)
@@ -47,7 +53,7 @@ async def test_the_decision_is_on_record_before_the_call_is_forwarded(gateway):
 
 async def test_a_denial_has_one_receipt(gateway):
     await gateway.on_call_tool(ctx("research-bot"), call("read_file", path="~/.ssh/id_rsa"))
-    assert [b["kind"] for b in bodies(gateway)] == ["genesis", "decision"]
+    assert [b["kind"] for b in call_bodies(gateway)] == ["genesis", "decision"]
     assert gateway.upstreams["files"].calls == []
 
 
@@ -80,7 +86,8 @@ async def test_parallel_calls_make_one_gap_free_chain(gateway):
     )
     report = check(gateway)
     assert report.intact and report.outcome_unknown == []
-    assert [b["seq"] for b in bodies(gateway)] == list(range(1 + 2 * 40))
+    assert [b["seq"] for b in bodies(gateway)] == list(range(len(bodies(gateway))))
+    assert len(call_bodies(gateway)) == 1 + 2 * 40
 
 
 async def test_an_allowed_call_without_an_outcome_is_outcome_unknown(gateway):
@@ -91,13 +98,14 @@ async def test_an_allowed_call_without_an_outcome_is_outcome_unknown(gateway):
     with contextlib.suppress(asyncio.CancelledError):
         await gateway.on_call_tool(ctx("research-bot"), call("list_dir", path="/workspace"))
     report = check(gateway)
-    assert report.intact and report.outcome_unknown == [1]
+    [decision] = [b for b in call_bodies(gateway) if b["kind"] == "decision"]
+    assert report.intact and report.outcome_unknown == [decision["seq"]]
 
 
 async def test_forgetting_a_salt_leaves_the_chain_valid(gateway):
     await gateway.on_call_tool(ctx("research-bot"), call("read_file", path="~/.ssh/id_rsa"))
     before = gateway.config.receipts_path.read_bytes()
-    decision = bodies(gateway)[1]
+    decision = call_bodies(gateway)[1]
     committed = json.dumps(decision["reason"]).split('"commitment": "')[1].split('"')[0]
     assert SaltStore(gateway.config.salts_path).forget(committed)
     assert gateway.config.receipts_path.read_bytes() == before  # not one byte changed
