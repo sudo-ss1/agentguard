@@ -8,7 +8,8 @@ agents:
   research-bot:
     tools: [read_file, write_file, list_dir, delete_file, fetch_url, send_email, get_weather]
 policy_dir: /app/config/policies
-pins_path: /lab-state/pins.json
+# Pins and quarantines: written by the gateway only (the harness may read them).
+pins_path: /gateway-pins/pins.json
 # The audit ledger (Phase 5). Receipts are on their own volume: the gateway writes it, the
 # agent container (the harness) may only read it. The signing key's volume is gateway-only.
 receipts_path: /ledger/receipts.jsonl

@@ -66,3 +66,64 @@ def test_the_harness_reads_receipts_from_the_ledger_volume():
     agent = {path: volume for volume, path, _ in mounts()["agent"]}
     receipts = COMPOSE["services"]["agent"]["environment"]["RECEIPTS_PATH"]
     assert agent[str(Path(receipts).parent)] == "ledger"
+
+
+# --- everything the gateway trusts ----------------------------------------------------------
+
+# What the gateway reads and acts on, from its config: pins and quarantines, the kill list and
+# approvals (guards.state_dir), the identity trust anchor, its ledger and keys, its policies and
+# the config file itself.
+TRUSTED = {
+    "pins": GATEWAY_CONFIG["pins_path"],
+    "guard state (kill list, approvals)": GATEWAY_CONFIG["guards"]["state_dir"],
+    "identity trust anchor": GATEWAY_CONFIG["identity_file"],
+    "receipts": GATEWAY_CONFIG["receipts_path"],
+    "salts": GATEWAY_CONFIG["salts_path"],
+    "ledger key": GATEWAY_CONFIG["ledger"]["key_dir"],
+    "ledger roots": GATEWAY_CONFIG["ledger"]["roots_dir"],
+    "policies": GATEWAY_CONFIG["policy_dir"],
+    "config": COMPOSE["services"]["gateway"]["command"][
+        COMPOSE["services"]["gateway"]["command"].index("--config") + 1
+    ],
+}
+# The one other writer allowed: `provision` writes the trust anchor once, at setup.
+ALLOWED_WRITERS = {"gateway-trust": {"provision"}}
+
+
+def gateway_volume_of(path: str) -> str | None:
+    """The gateway's volume holding `path`, or None if it is in the image."""
+    rows = {p: v for v, p, _ in mounts()["gateway"]}
+    matches = [p for p in rows if path == p or path.startswith(p.rstrip("/") + "/")]
+    return rows[max(matches, key=len)] if matches else None
+
+
+def test_no_other_container_can_write_anything_the_gateway_trusts():
+    for what, path in TRUSTED.items():
+        volume = gateway_volume_of(path)
+        if volume is None:  # baked into the image: nobody may mount over it
+            assert path.startswith("/app/"), f"{what} ({path}) is neither on a volume nor in /app"
+            for service, rows in mounts().items():
+                for _, target, _ in rows:
+                    assert not (path.startswith(target.rstrip("/") + "/") or path == target), (
+                        f"{service} mounts {target} over the gateway's {what}"
+                    )
+            continue
+        writers = {s for s, ro in services_mounting(volume).items() if not ro} - {"gateway"}
+        assert writers <= ALLOWED_WRITERS.get(volume, set()), (
+            f"{what} ({path}, volume {volume}) is writable by {sorted(writers)}"
+        )
+
+
+def test_the_gateway_shares_no_writable_volume_with_the_tools_or_the_agent():
+    gateway_volumes = {v for v, _, _ in mounts()["gateway"]}
+    assert "lab-state" not in gateway_volumes
+    for service in ("files", "web", "email", "weather", "agent"):
+        shared = {v for v, _, ro in mounts()[service] if not ro} & gateway_volumes
+        assert shared == set(), f"{service} can write the gateway's {sorted(shared)}"
+
+
+def test_the_harness_reads_pins_from_the_gateways_pins_volume():
+    agent = {path: (volume, ro) for volume, path, ro in mounts()["agent"]}
+    pins = COMPOSE["services"]["agent"]["environment"]["PINS_PATH"]
+    assert agent[str(Path(pins).parent)] == ("gateway-pins", True)
+    assert pins == GATEWAY_CONFIG["pins_path"]

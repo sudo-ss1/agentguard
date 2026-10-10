@@ -62,6 +62,21 @@ local lab (`make attack`) and in Docker (`make attack-docker`).
 
 ## Resolved issues
 
+- **Pins and quarantines were writable by other containers** (found 2026-10-09, fixed
+  2026-10-10). In Docker the gateway kept `pins.json` on the `lab-state` volume, which the agent
+  container and all four tool servers mount read-write. A compromised container could have
+  rewritten it, for example to lift a quarantine, effective at the gateway's next restart. The
+  running gateway reads pins only at startup, so a live edit would have been overwritten.
+  - **Fix:** pins live on their own `gateway-pins` volume, written only by the gateway and
+    mounted read-only into the harness. The gateway no longer mounts `lab-state` at all.
+  - **Audit of everything the gateway trusts:** pins and quarantines, the kill list and
+    approvals (`gateway-state`), the identity trust anchor (`gateway-trust`, written once by
+    `provision`), the ledger, checkpoints, signing key and salts, and its config and policies
+    (in the image). `tests/test_compose.py` now derives these paths from `config/gateway.yaml`
+    and fails if any other container can write one. Checked from inside the containers on
+    2026-10-10: the agent can read but not write pins, the ledger and checkpoints, and can't see
+    the rest; the tool servers see none of them.
+  - **Left in place:** the old `/lab-state/pins.json` from before the move. Nothing reads it.
 - **A secret could appear in a `SecretFinding` repr** (fixed 2026-10-09). Since Phase 4, the
   secret scanner's finding class used the default dataclass repr, which includes the matched
   secret. Any repr of it (a log line, a traceback, a failed test assertion) would have shown the

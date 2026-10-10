@@ -67,12 +67,15 @@ services:
     command: ["python", "-m", "agentguard.gateway", "--config", "/app/config/gateway.yaml", "--port", "8000"]
     environment:
       GUARD_STATE_DIR: /gateway-state/guards
-    # receipt-salts and ledger-key: only the gateway (and an auditor via
-    # `docker compose exec gateway`). ledger: receipts, written only by the gateway.
-    # ledger-roots: signed checkpoints and the ledger's public key.
-    volumes: [lab-state:/lab-state, gateway-trust:/gateway-trust:ro, receipt-salts:/receipt-salts,
-              gateway-state:/gateway-state, ledger:/ledger, ledger-key:/ledger-key,
-              ledger-roots:/ledger-roots]
+    # Everything the gateway trusts is on a volume no other container can write
+    # (tests/test_compose.py). receipt-salts, ledger-key and gateway-state (kill list,
+    # approvals): only the gateway, and an auditor via `docker compose exec gateway`.
+    # ledger, ledger-roots and gateway-pins: written by the gateway, read-only to the harness.
+    # gateway-trust: written once by `provision`, read-only here. It doesn't mount lab-state,
+    # which the tools and the agent share.
+    volumes: [gateway-trust:/gateway-trust:ro, receipt-salts:/receipt-salts,
+              gateway-state:/gateway-state, gateway-pins:/gateway-pins, ledger:/ledger,
+              ledger-key:/ledger-key, ledger-roots:/ledger-roots]
     networks: [lab]
     depends_on:
       files: {condition: service_started}
@@ -106,12 +109,12 @@ services:
       OUTBOX_PATH: /lab-state/outbox.jsonl
       RUGPULL_FLAG: /lab-state/rugpull.flag
       RECEIPTS_PATH: /ledger/receipts.jsonl
-      PINS_PATH: /lab-state/pins.json
+      PINS_PATH: /gateway-pins/pins.json
       LEDGER_ROOTS_DIR: /ledger-roots
       CREDENTIALS_DIR: /agent-creds
-    # The harness reads receipts and checkpoints; it can never write them or read the key.
+    # The harness reads receipts, checkpoints and pins; it can never write them or read the key.
     volumes: [lab-state:/lab-state, agent-creds:/agent-creds:ro, ledger:/ledger:ro,
-              ledger-roots:/ledger-roots:ro]
+              ledger-roots:/ledger-roots:ro, gateway-pins:/gateway-pins:ro]
     networks: [lab, internet]
     depends_on:
       ollama: {condition: service_healthy, required: false}
@@ -136,7 +139,8 @@ volumes:
   agent-creds: {}
   gateway-trust: {}
   receipt-salts: {}
-  gateway-state: {}  # kill list and guard reset epoch: gateway only
+  gateway-state: {}  # kill list, approvals and guard reset epoch: gateway only
+  gateway-pins: {}  # tool-description pins and quarantines: gateway read-write, harness read-only
   ledger: {}        # receipts: gateway read-write, harness read-only
   ledger-key: {}    # the receipt-signing key: gateway only
   ledger-roots: {}  # checkpoints and the public key: gateway read-write, harness read-only
