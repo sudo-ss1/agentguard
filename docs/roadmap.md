@@ -76,7 +76,8 @@ local lab (`make attack`) and in Docker (`make attack-docker`).
     and fails if any other container can write one. Checked from inside the containers on
     2026-10-10: the agent can read but not write pins, the ledger and checkpoints, and can't see
     the rest; the tool servers see none of them.
-  - **Left in place:** the old `/lab-state/pins.json` from before the move. Nothing reads it.
+  - **The old `/lab-state/pins.json`** was deleted from the Docker lab on 2026-10-10, after
+    confirming nothing read it and the gateway-only file held the current pins and quarantines.
 - **A secret could appear in a `SecretFinding` repr** (fixed 2026-10-09). Since Phase 4, the
   secret scanner's finding class used the default dataclass repr, which includes the matched
   secret. Any repr of it (a log line, a traceback, a failed test assertion) would have shown the

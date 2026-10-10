@@ -95,8 +95,9 @@ agent's allowlist and with quarantined servers removed. A changed upstream descr
 therefore never reaches the agent. A background loop (`refresh_interval_s`) re-fetches upstream
 lists, pins new tools (trust on first use), and quarantines a server whose pinned tool changed.
 Pins and quarantines persist in `pins.json`. To re-approve a server, stop the gateway and edit
-that file. In Docker the file lives in the `lab-state` volume, so `docker compose down -v`
-resets it.
+that file; the edit is recorded as a control receipt when the gateway starts again (Phase 6). In
+Docker the file lives in the `gateway-pins` volume, which only the gateway can write (the
+harness reads it), so `docker compose down -v` resets it.
 
 Two details worth knowing:
 
