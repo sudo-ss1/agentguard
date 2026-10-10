@@ -11,18 +11,23 @@ Last updated: 2026-10-10. The phases follow [agentguardplan.md](../agentguardpla
 | 3 | Agent identity: did:key, Verifiable Credentials, DPoP-bound requests and Biscuit capability tokens with delegation (attacks 4–5) | [phase3-design.md](phase3-design.md) |
 | 4 | Runtime guards: secret scanning, human approval, budgets and a kill switch (attack 6); result scanning that strips hidden content; a scanner evaluation and LLM trials | [phase4-design.md](phase4-design.md), [eval-notes.md](eval-notes.md) |
 | 5 | Tamper-evident audit ledger: signed, hash-chained receipts, Merkle checkpoints, `agentguard ledger verify` (attack 7); Docker volume isolation for the key, salts and ledger | [phase5-design.md](phase5-design.md) |
+| 6 (in review) | Visibility: a discovery scanner (AI bill of materials, fingerprints only, history read with dulwich), an explainable risk score, control receipts for kill-list and pin changes, a local Streamlit dashboard (attack 8); gateway state moved out of reach of every other container | [phase6-design.md](phase6-design.md) |
 
-All seven attacks succeed against the baseline and are blocked through the gateway, both on a
-local lab (`make attack`) and in Docker (`make attack-docker`).
+Attacks 1–7 succeed against the baseline and are blocked through the gateway, and attack 8
+goes unnoticed in the baseline and is detected through it, both on a local lab
+(`make attack`) and in Docker (`make attack-docker`).
 
 ## Next
 
-- **Phase 6, visibility:** a discovery scanner (MCP client configs, SDK imports, keys) that
-  outputs an AI bill of materials, a risk engine, and a Streamlit dashboard. Attack 8 ("API key
-  committed in a repo") lands here.
 - **Write-up:** README polish, the architecture diagram and a blog post.
 
 ## Future work
+
+- **Watching processes and outbound DNS** for calls to LLM endpoints, as the plan suggests.
+  Left out of Phase 6: it needs root or packet capture, from WSL2 it can't see the Windows
+  side, polling misses short connections, and it observes other people's activity.
+- **A blob-size check before loading,** in `scan --history`: dulwich has no public way to read
+  an object's size without decompressing it, so the size cap applies after a blob is loaded.
 
 - **LLM trials with tasks that use tools,** taken from an external task set rather than one
   designed for this project. The Phase 4 trials measured answer steering only; no trial made a

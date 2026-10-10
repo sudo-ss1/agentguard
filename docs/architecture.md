@@ -194,3 +194,24 @@ as a text file. JSON lines keep the log readable with `jq`, need no extra servic
 torn-write recovery a matter of bytes after the last newline.
 
 Details: [phase5-design.md](phase5-design.md).
+
+## Phase 6: visibility
+
+Phase 6 adds tools around the gateway, not checks inside it: nothing in the gateway's decision
+path imports them, and a risk score never allows a call.
+
+- **Discovery scanner** (`agentguard scan`, `src/agentguard/discovery/`): an AI bill of
+  materials of local repos and MCP client configs. Credentials appear only as rule, file,
+  line and a keyed fingerprint. History is read with dulwich, never the `git` binary.
+- **Risk engine** (`agentguard risk`, `src/agentguard/risk.py`): an explainable 0–100 score per
+  agent from the inventory, the gateway's config, policies and pins, and its verified receipts.
+- **Control receipts** (`src/agentguard/gateway/control.py`): the gateway signs a receipt for
+  every change to the kill list and to pins and quarantines, including one made while it was
+  stopped.
+- **Dashboard** (`agentguard dashboard`, `src/agentguard/dashboard/`): a local Streamlit page on
+  127.0.0.1 that reads the ledger read-only and acts only through the CLI's functions
+  (`src/agentguard/ops.py`).
+- **Gateway state isolation:** pins moved to their own `gateway-pins` volume, and
+  `tests/test_compose.py` checks that no other container can write anything the gateway trusts.
+
+Details: [phase6-design.md](phase6-design.md).

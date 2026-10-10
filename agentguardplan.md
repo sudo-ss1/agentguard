@@ -4,7 +4,7 @@
 
 ## Goals and scope
 
-AgentGuard is a solo, open-source learning project: a policy-enforcing proxy that sits between AI agents and their tools, gives each agent a verifiable identity, and records every action in a tamper-evident log. The aim is a working, demo-able system in about 12 weeks of evenings and weekends, not a product.
+AgentGuard is a solo, open-source learning project: a policy-enforcing proxy that sits between AI agents and their tools, gives each agent a verifiable identity, and records every action in a tamper-evident log. The aim is a working, demo-able system built in six phases, not a product.
 
 What you get out of it:
 
@@ -151,16 +151,16 @@ Python end to end keeps it fast to build, since the agent frameworks, MCP SDK an
 
 ## Milestones
 
-Six two-week phases; each ends with something you can run and show.
+Six phases; each ends with something you can run and show.
 
-| Weeks | Phase | Deliverable |
+| Phase | Name | Deliverable |
 | --- | --- | --- |
-| 1–2 | Vulnerable baseline | A LangGraph agent with 3 MCP tools (files, web fetch, email stub) that you successfully attack |
-| 3–4 | Gateway + policy | MCP proxy with tool allowlists and Cedar policies; the earlier attacks now get blocked |
-| 5–6 | Identity + tokens | `did:key` per agent, VC from the identity service, Biscuit tokens with attenuated sub-agent delegation |
-| 7–8 | Runtime guards | Injection and secret scanning, human-approval flow, budgets, kill switch |
-| 9–10 | Audit ledger | Signed, hash-chained receipts, Merkle roots and a `verify` command |
-| 11–12 | Visibility | Discovery scanner, risk scores, dashboard, write-up and demo video |
+| 1 | Vulnerable baseline | A LangGraph agent with 3 MCP tools (files, web fetch, email stub) that you successfully attack |
+| 2 | Gateway + policy | MCP proxy with tool allowlists and Cedar policies; the earlier attacks now get blocked |
+| 3 | Identity + tokens | `did:key` per agent, VC from the identity service, Biscuit tokens with attenuated sub-agent delegation |
+| 4 | Runtime guards | Injection and secret scanning, human-approval flow, budgets, kill switch |
+| 5 | Audit ledger | Signed, hash-chained receipts, Merkle roots and a `verify` command |
+| 6 | Visibility | Discovery scanner, risk scores, dashboard, write-up and demo video |
 
 Phase checklist:
 

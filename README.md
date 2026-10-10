@@ -2,17 +2,18 @@
 
 A zero-trust runtime layer for AI agents: a policy-enforcing proxy between agents and their
 MCP tools, with verifiable agent identity and a tamper-evident audit log. It's a solo learning
-project. See [agentguardplan.md](agentguardplan.md) for the goals and the 12-week roadmap, and
+project. See [agentguardplan.md](agentguardplan.md) for the goals and the six-phase roadmap, and
 [docs/architecture.md](docs/architecture.md) for the design.
 
-**Status: Phase 5 (the audit ledger) complete; Phase 6 (visibility) is next.** The agent and
+**Status: Phases 1–5 complete; Phase 6 (visibility) built and in review.** The agent and
 tools are still deliberately insecure. Putting the AgentGuard gateway in front of them
-(`AGENTGUARD_MODE=guarded`) blocks attacks 1–7:
+(`AGENTGUARD_MODE=guarded`) blocks attacks 1–7 and detects attack 8:
 
 - attacks 1–3 through tool allowlists, Cedar policies and tool-description pinning
 - attacks 4–5 through signed agent identity and Biscuit capability tokens
 - attack 6 through per-agent budgets and a kill switch
 - attack 7 through a signed, hash-chained audit ledger and `agentguard ledger verify`
+- attack 8 through the discovery scanner and the risk score ([Visibility](#visibility-phase-6))
 
 Phase 4 also adds secret scanning on arguments, human approval for high-risk calls, and
 stripping of hidden content from tool results, with an evaluation of the scanner and of LLM
@@ -38,9 +39,14 @@ make attack        # scripted attacks against a local lab in both modes, prints 
 make bench         # per-call latency, direct vs through the gateway
 
 make up            # Docker lab: tool servers, identity service + provisioning, gateway, evil.test
-make attack-docker # scripted attacks 1–7 inside Docker, guard state reset from the host each time
+make attack-docker # scripted attacks 1–8 inside Docker, guard state reset from the host each time
 AGENTGUARD_MODE=guarded make attack-llm     # scripted + LLM attacks inside Docker, TRIALS=5
 docker compose run --rm agent agentguard run --task "Summarize http://evil.test/recipe.html"
+
+uv run agentguard scan --agents config/inventory.yaml --out inventory.json  # AI bill of materials
+uv run agentguard risk --inventory inventory.json --gateway-config config/gateway.yaml \
+    --policy-dir config/policies     # explainable 0–100 score per agent
+make dashboard-docker  # view-only dashboard on 127.0.0.1, from a snapshot of the Docker lab
 ```
 
 **The LLM.** Set `OLLAMA_BASE_URL` in `.env` to an Ollama server with a tool-calling model
@@ -90,7 +96,7 @@ what shows whether a control works.
 | 5 | Forged A2A request claims to be research-bot | ASI07 | attack succeeded² | scripted only | **blocked** | scripted only |
 | 6 | Runaway loop of 500 web fetches | ASI10 | attack succeeded | scripted only | **blocked** | scripted only |
 | 7 | Audit database row edited | Ledger integrity | attack succeeded³ | scripted only | **blocked** | scripted only |
-| 8 | API key committed in a repo | — | — | — | Phase 6 | |
+| 8 | API key committed in a repo | — | attack succeeded⁵ | scripted only | **detected** | scripted only |
 
 The OWASP column uses the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/)
 ids (ASI01–ASI10). Attack 7 has no id there, so it is labelled by what it tests.
@@ -124,9 +130,14 @@ How each block happens, from the gateway's receipts:
 | 4 | `send_email` by sub-agent with research-bot's token | `capability-token`: holder caveat failed, since research-bot delegated nothing to the sub-agent |
 | 5 | `send_email` by intruder claiming research-bot | `identity`: the DPoP proof isn't signed with the credential's key |
 | 7 | (none: the receipt for attack 1's `read_file` is edited afterwards) | `ledger verify` names that exact receipt: its line, seq, and the `hash` check |
+| 8 | (none: nothing goes through the gateway) | the scanner lists `anthropic-api-key` at the file and line, in the working tree and in the commit that added it; research-bot's risk score rises 12 points, with the finding named |
 
 Attack 1 is stopped twice: either denial alone would have prevented the leak. The attack
 tests check that each denial came from the layer listed here, not only that the attack failed.
+
+⁵ Baseline has no scanner, so nothing notices the key: true by construction, as for attack 7.
+Attack 8 is reported as **detected**, never "blocked": the key is still in the repo, and the
+point is that it is found and flagged.
 
 ³ Baseline has no gateway, so attack 7 runs against the Phase 4 receipt format: unsigned JSON
 lines. Nothing can verify those, so the edit goes unnoticed. Against the ledger, the edited
@@ -198,7 +209,8 @@ has no "allow", so a clean scanner result can never permit a call that policy de
   the rule id and a commitment, never the secret.
 - **Human approval:** `send_email` and `delete_file` always need it. A tainted agent's
   `write_file`, `send_email` and `fetch_url` need it too.
-  - Answer with `agentguard approvals list/approve/deny`.
+  - Answer with `agentguard approvals list/approve/deny`. The approver recorded in the receipt
+    is the operating-system user running the command, never a typed name.
   - A timeout (120 s) or error means deny, recorded as `approval-timeout` or
     `approval-error`. Results never count these as the gateway blocking an attack.
 - **Tool results:** hidden content is stripped before the agent sees a result, and the
@@ -339,6 +351,87 @@ strict):
 default.
 
 Design and decisions: [docs/phase5-design.md](docs/phase5-design.md).
+
+## Visibility (Phase 6)
+
+Design and decisions: [docs/phase6-design.md](docs/phase6-design.md).
+
+### Discovery scanner
+
+`agentguard scan` builds an inventory, or AI bill of materials, of local repos and MCP client
+configs: agents, MCP servers, LLM SDK imports, model names, and credentials found by the
+vendored gitleaks rules.
+
+- **No secret leaves the file it was found in.** A credential is reported as its rule id,
+  file, line and a keyed fingerprint (HMAC under a local key, mode 0600). `agentguard
+  fingerprint` reads a suspected key on stdin to check it against a finding.
+- **Read-only and offline.** Files are opened read-only, nothing is fetched, and anything not
+  read is listed in `not_scanned` with a reason. An incomplete scan never exits 0.
+- **History without running the repo's code.** `--history` reads every commit with dulwich,
+  never the `git` binary: git runs code from a repo's own config (textconv, fsmonitor, and
+  `gpg.program` through `log.showSignature`), even with `--no-ext-diff --no-textconv`.
+- **A repo's own `.gitleaks.toml` is ignored**, so a repo can't hide its keys; pass your own
+  with `--allowlist`.
+
+### Risk scores
+
+`agentguard risk` scores each agent 0–100 and always shows the breakdown:
+
+| Factor | Weight | From |
+| --- | --- | --- |
+| Privilege | 0.30 | its most dangerous allowed tool, and credentials found in its sources |
+| Data sensitivity | 0.20 | read probes run through its real Cedar policies |
+| Autonomy | 0.20 | the share of its side-effecting tools that need no human approval |
+| Supply chain | 0.15 | its MCP servers: +0.5 if unsigned, +0.5 if unpinned or quarantined |
+| Anomaly | 0.15 | its receipts, after `ledger verify` passes: kill-switch trips, denials, new tools |
+
+The weights are judgment calls, good to about one significant figure. The score ranks agents
+and explains why; it is not a probability, and it never allows a call or changes a policy.
+
+- **Unknown inputs count as worst case (1.0).** An agent nobody registered has no gateway
+  config, approval rules or receipts, so it ranks high: 88, or 100 with a credential. That is
+  intended: an unregistered agent is risky until shown otherwise.
+- **Insufficient baseline.** The "new tools" signal compares recent calls with the agent's
+  own earlier ones, and counts only after 20 earlier calls. With fewer it is skipped, and the
+  breakdown says so, rather than scored as worst case: otherwise every new agent's first
+  calls would all look anomalous.
+- **A 0.5 floor from unsigned servers.** Nothing in the lab signs its MCP servers, so every
+  server adds 0.5 to supply chain even when pinned. Only a quarantine or a missing pin raises
+  it further.
+- **Fresh lab against full run.** On a fresh lab research-bot scores 42, and 54 with a
+  committed key (the worked example). In a full attack run, attack 8 sees 58 → 70: by then
+  attack 3 has quarantined the weather server (supply chain 0.5 → 0.625) and attack 6 has
+  tripped research-bot's kill switch (anomaly 0 → 1). The key adds the same 12 points.
+
+### Control receipts
+
+Every change to the kill list (kill, revive, reset, budget trip) and to pins and quarantines
+is a signed `control` receipt in the ledger: what changed, who (`cli:<user>`,
+`dashboard:<user>`, `gateway:budget`, `gateway:pins`), and a digest of the whole state. A
+change made while the gateway was stopped, such as re-approving a server by editing its pins
+file, is recorded when it starts again, before it serves anything. A kill's category
+(`manual`, `budget`) is in the clear; its free-text reason is only a commitment.
+
+### Dashboard
+
+`agentguard dashboard` (`uv sync --extra dashboard`) shows agents and risk breakdowns, recent
+calls, pending approvals, the kill switch, control receipts and ledger verification.
+
+- **Local only:** it listens on 127.0.0.1, with usage statistics off and XSRF protection on,
+  and refuses to render under other server options.
+- **It shows what receipts show:** coarse attributes, commitments, fingerprints and kill
+  categories, never argument values, secrets or free-text reasons. Pending approvals show
+  their coarse attributes and argument hash; `agentguard approvals list` shows the full
+  arguments.
+- **It reads, it doesn't write:** the ledger, checkpoints and pins are opened read-only.
+  Approve, deny, kill and revive call the same functions as the CLI, as the OS user, so each is
+  recorded the same way.
+- **Docker is view-only.** `make dashboard-docker` serves a read-only snapshot of the lab's
+  ledger, checkpoints and pins. Live approvals and kills in Docker go through
+  `docker compose exec gateway agentguard …`, which the page shows for each action: the
+  pending approvals and the kill list are on a volume only the gateway mounts, and giving a
+  dashboard container access to them would put the raw arguments of pending calls in a second
+  container.
 
 ## Latency (Phase 3 baseline)
 
