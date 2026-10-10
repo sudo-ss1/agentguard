@@ -66,6 +66,17 @@ def calls(path: Path | None, start: int = 0, end: int | None = None) -> list[dic
     return out
 
 
+def bodies(path: Path | None, kind: str) -> list[dict[str, Any]]:
+    """The bodies of every ledger receipt of `kind`, in order."""
+    if path is None or not path.exists():
+        return []
+    return [
+        dict(row["body"])
+        for row in _rows(path, 0, None)
+        if is_ledger_line(row) and row["body"].get("kind") == kind
+    ]
+
+
 def last_receipt(path: Path | None, kind: str, **match: Any) -> dict[str, Any] | None:
     """The body of the last ledger receipt of `kind` whose fields equal `match`, or None."""
     if path is None or not path.exists():

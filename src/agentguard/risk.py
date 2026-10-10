@@ -212,11 +212,12 @@ def supply_chain(servers: list[Server] | None) -> Factor:
 
 @dataclass(frozen=True)
 class Ledger:
-    """The agent's calls, from a ledger that passed verification."""
+    """Calls and control receipts, from a ledger that passed verification."""
 
     verified: bool
     detail: str  # why it is or isn't trusted
     calls: list[dict[str, Any]] = field(default_factory=list)
+    controls: list[dict[str, Any]] = field(default_factory=list)  # control receipt bodies
 
 
 def _blocked(call: dict[str, Any]) -> bool:
@@ -225,17 +226,22 @@ def _blocked(call: dict[str, Any]) -> bool:
     return call.get("denial_class", "policy") in ("policy", "guard")
 
 
-def _tripped(call: dict[str, Any]) -> bool:
-    reason = call.get("reason")
-    summary = str(reason.get("summary", "")) if isinstance(reason, dict) else ""
-    stopped = call.get("policy_id") == "kill-switch" and call.get("decision") == "deny"
-    return stopped or "kill switch tripped" in summary
+def _kills(agent: str, dids: set[str], controls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Control receipts that put this agent (by name, or one of its DIDs) on the kill list."""
+    return [
+        c
+        for c in controls
+        if c.get("action") == "kill-list"
+        and (agent in c.get("added", {}).get("names", [])
+             or dids & set(c.get("added", {}).get("dids", [])))
+    ]  # fmt: skip
 
 
 def anomaly(agent: str, ledger: Ledger | None, now: datetime, config: RiskConfig) -> Factor:
-    """The highest of: a kill-switch trip in the window (1); the share of recent calls denied
-    by policy or a guard; the share of recent calls to tools absent from the agent's earlier
-    calls (only with at least min_baseline_calls earlier calls)."""
+    """The highest of: a kill-switch trip in the window, read from the ledger's control
+    receipts (1); the share of recent calls denied by policy or a guard; the share of recent
+    calls to tools absent from the agent's earlier calls (only with at least
+    min_baseline_calls earlier calls)."""
     if ledger is None:
         return _unknown("anomaly", "no ledger: its calls aren't recorded")
     if not ledger.verified:
@@ -243,19 +249,30 @@ def anomaly(agent: str, ledger: Ledger | None, now: datetime, config: RiskConfig
         f.evidence["ledger_verified"] = False
         return f
     start = now - timedelta(seconds=config.window_s)
+
+    def in_window(row: dict[str, Any]) -> bool:
+        return isinstance(row.get("ts"), str) and start <= datetime.fromisoformat(row["ts"]) <= now
+
     mine = [c for c in ledger.calls if c.get("agent") == agent and isinstance(c.get("ts"), str)]
-    recent = [c for c in mine if start <= datetime.fromisoformat(c["ts"]) <= now]
+    recent = [c for c in mine if in_window(c)]
     before = [c for c in mine if datetime.fromisoformat(c["ts"]) < start]
+    dids = {str(c["agent_did"]) for c in mine if c.get("agent_did")}
+    kills = [k for k in _kills(agent, dids, ledger.controls) if in_window(k)]
     window = f"last {config.window_s / 3600:g} h"
-    if not recent:
+    if not recent and not kills:
         return Factor("anomaly", 0.0, [f"no calls in the {window}"], evidence={"recent_calls": 0})
-    signals = {"kill_switch": 1.0 if any(_tripped(c) for c in recent) else 0.0}
+
+    signals = {"kill_switch": 1.0 if kills else 0.0}
     denied = sum(_blocked(c) for c in recent)
-    signals["denied_share"] = denied / len(recent)
+    signals["denied_share"] = denied / len(recent) if recent else 0.0
     why = [f"{len(recent)} call(s) in the {window}, {denied} denied by policy or a guard"]
-    if signals["kill_switch"]:
-        why.append("the kill switch stopped it")
-    if len(before) >= config.min_baseline_calls:
+    for k in kills:
+        categories = sorted({r.get("category", "unknown") for r in k.get("reasons", {}).values()})
+        why.append(
+            f"the kill switch stopped it ({', '.join(categories) or 'unknown'}; "
+            f"control receipt seq {k.get('seq')}, by {k.get('by', 'unknown')})"
+        )
+    if len(before) >= config.min_baseline_calls and recent:
         known = {c.get("tool") for c in before}
         new = [c for c in recent if c.get("tool") not in known]
         signals["new_tool_share"] = len(new) / len(recent)
@@ -266,7 +283,12 @@ def anomaly(agent: str, ledger: Ledger | None, now: datetime, config: RiskConfig
             f"new-tool check skipped: {len(before)} earlier call(s), "
             f"{config.min_baseline_calls} needed for a baseline"
         )
-    evidence = {"recent_calls": len(recent), "baseline_calls": len(before), **signals}
+    evidence = {
+        "recent_calls": len(recent),
+        "baseline_calls": len(before),
+        "kills": [k.get("seq") for k in kills],
+        **signals,
+    }
     return Factor("anomaly", max(signals.values()), why, evidence=evidence)
 
 

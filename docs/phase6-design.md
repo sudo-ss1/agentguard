@@ -188,8 +188,10 @@ with the finding named in the breakdown.
   all look anomalous.
 - **Denials** count when blocked on the merits (`denial_class` policy or guard). Approval
   timeouts and errors don't.
-- **Kill-switch trips** are read from `kill-switch` denials and budget denials whose summary
-  says the switch tripped. Phase 6's control receipts (step 4) add a direct record.
+- **Kill-switch trips** are read from the ledger's control receipts: a kill-list receipt in the
+  window that added the agent's name or one of its DIDs (taken from its own calls). The
+  breakdown names the category, the receipt's seq and who made it. A `kill-switch` denial
+  without such a receipt only counts towards the denied share.
 - **Cedar probes** call the gateway's own `CedarCheck`. A probe that errors counts as
   permitted, the riskier answer.
 - **Signing.** Nothing in the lab is signed, so every server gets the +0.5 for unsigned.

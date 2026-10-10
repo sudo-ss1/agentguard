@@ -267,7 +267,7 @@ def _risk_inputs(lab: Lab) -> tuple[Any, Any]:
     started."""
     from agentguard.gateway.checks import CallContext
     from agentguard.guards.approvals import ApprovalConfig
-    from agentguard.ledger.read import calls
+    from agentguard.ledger.read import bodies, calls
     from agentguard.ledger.verify import verify
     from agentguard.policy.cedar import CedarCheck
     from agentguard.risk import GatewayView, Ledger
@@ -282,8 +282,11 @@ def _risk_inputs(lab: Lab) -> tuple[Any, Any]:
     ledger = None
     if lab.receipts_path is not None and lab.ledger_public_key is not None:
         report = verify(lab.receipts_path, lab.ledger_public_key)
-        ledger = Ledger(report.intact, "intact" if report.intact else "tampered",
-                        calls(lab.receipts_path) if report.intact else [])  # fmt: skip
+        ledger = (
+            Ledger(True, "intact", calls(lab.receipts_path), bodies(lab.receipts_path, "control"))
+            if report.intact
+            else Ledger(False, "tampered")
+        )
     pins = None
     if lab.pins_path is not None and lab.pins_path.is_file():
         pins = json.loads(lab.pins_path.read_text())

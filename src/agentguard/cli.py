@@ -718,7 +718,7 @@ def risk(
     from agentguard.gateway.checks import CallContext
     from agentguard.guards.approvals import ApprovalConfig
     from agentguard.ledger.keys import load_public
-    from agentguard.ledger.read import calls
+    from agentguard.ledger.read import bodies, calls
     from agentguard.ledger.verify import VerifyInputError, verify
     from agentguard.policy.cedar import CedarCheck
     from agentguard.risk import GatewayView, Ledger, assess, load_risk_config, text_report
@@ -754,7 +754,11 @@ def risk(
             else:
                 first = report.first_broken
                 detail = "intact" if first is None else f"{first.check} at line {first.line}"
-                ledger = Ledger(report.intact, detail, calls(receipts) if report.intact else [])
+                ledger = (
+                    Ledger(True, detail, calls(receipts), bodies(receipts, "control"))
+                    if report.intact
+                    else Ledger(False, detail)
+                )
     results = assess(json.loads(inventory.read_text()), config, view, ledger)
     if as_json:
         typer.echo(json.dumps([r.as_dict(config) for r in results], indent=2))

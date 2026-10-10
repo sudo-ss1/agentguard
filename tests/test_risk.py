@@ -225,11 +225,54 @@ def test_approval_timeouts_are_not_counted_as_denials():
     assert anomaly("bot", Ledger(True, "ok", recent), NOW, CONFIG).value == 0.0
 
 
-def test_a_kill_switch_trip_is_maximal():
-    recent = calls("bot", ["fetch_url"] * 5, NOW - timedelta(minutes=5))
-    recent[-1] |= {"decision": "deny", "denial_class": "guard", "policy_id": "kill-switch"}
-    f = anomaly("bot", Ledger(True, "ok", recent), NOW, CONFIG)
-    assert f.value == 1.0 and "the kill switch stopped it" in f.why
+def kill_receipt(seq: int, ts: datetime, names=(), dids=(), category="budget") -> dict:
+    """A control receipt body, as gateway/control.py writes it."""
+    added = {"dids": list(dids), "names": list(names), "revocation_ids": []}
+    return {
+        "kind": "control",
+        "action": "kill-list",
+        "change": "kill",
+        "by": "gateway:budget" if category == "budget" else "cli:alice",
+        "seq": seq,
+        "ts": ts.isoformat(),
+        "added": added,
+        "reasons": {f"names/{n}": {"category": category} for n in names}
+        | {f"dids/{d}": {"category": category} for d in dids},
+    }
+
+
+def test_a_kill_switch_trip_is_read_from_control_receipts():
+    recent = calls("bot", ["fetch_url"] * 5, NOW - timedelta(minutes=5), agent_did="did:key:zBot")
+    by_did = kill_receipt(41, NOW - timedelta(minutes=2), dids=["did:key:zBot"])
+    f = anomaly("bot", Ledger(True, "ok", recent, [by_did]), NOW, CONFIG)
+    assert f.value == 1.0 and f.evidence["kills"] == [41]
+    assert "the kill switch stopped it (budget; control receipt seq 41, by gateway:budget)" in f.why
+    by_name = kill_receipt(42, NOW - timedelta(minutes=2), names=["bot"], category="manual")
+    assert anomaly("bot", Ledger(True, "ok", recent, [by_name]), NOW, CONFIG).value == 1.0
+
+
+def test_only_this_agents_kills_in_the_window_count():
+    recent = calls("bot", ["fetch_url"] * 5, NOW - timedelta(minutes=5), agent_did="did:key:zBot")
+    others = [
+        kill_receipt(1, NOW - timedelta(minutes=2), names=["someone-else"]),
+        kill_receipt(2, NOW - timedelta(minutes=2), dids=["did:key:zOther"]),
+        kill_receipt(3, NOW - timedelta(hours=3), names=["bot"]),  # outside the window
+    ]
+    f = anomaly("bot", Ledger(True, "ok", recent, others), NOW, CONFIG)
+    assert f.value == 0.0 and f.evidence["kills"] == []
+
+
+def test_a_kill_switch_denial_alone_is_not_a_trip():
+    recent = calls("bot", ["fetch_url"] * 4, NOW - timedelta(minutes=5))
+    recent[-1] |= {"decision": "deny", "denial_class": "policy", "policy_id": "kill-switch"}
+    f = anomaly("bot", Ledger(True, "ok", recent, []), NOW, CONFIG)
+    assert f.evidence["kill_switch"] == 0.0 and f.value == pytest.approx(0.25)  # denied share
+
+
+def test_a_kill_with_no_recent_calls_still_counts():
+    kill = kill_receipt(7, NOW - timedelta(minutes=1), names=["bot"], category="manual")
+    f = anomaly("bot", Ledger(True, "ok", [], [kill]), NOW, CONFIG)
+    assert f.value == 1.0 and f.evidence["recent_calls"] == 0
 
 
 def test_new_tools_count_only_against_an_established_baseline():
@@ -333,6 +376,27 @@ def test_the_cli_verifies_the_ledger_before_using_it(tmp_path):
     [tampered] = json.loads(runner.invoke(app, [*args, "--public-key", str(pub)]).stdout)
     assert tampered["factors"]["anomaly"]["evidence"]["ledger_verified"] is False
     assert "line 3" in tampered["factors"]["anomaly"]["why"][0]
+
+
+def test_the_cli_reads_kills_from_the_ledgers_control_receipts(tmp_path):
+    key = AgentKey.generate()
+    led = LedgerWriter(tmp_path / "receipts.jsonl", key, tmp_path / "roots",
+                       checkpoint_interval_s=3600, fsync_interval_s=3600)  # fmt: skip
+    led.append("decision", {"agent": "research-bot", "tool": "read_file", "decision": "allow"})
+    led.append("control", {"action": "kill-list", "change": "kill", "by": "gateway:budget",
+                           "added": {"dids": [], "names": ["research-bot"], "revocation_ids": []},
+                           "reasons": {"names/research-bot": {"category": "budget"}}})  # fmt: skip
+    led.close()
+    inventory = tmp_path / "inv.json"
+    inventory.write_text(json.dumps({"agents": [research_bot()]}))
+    out = runner.invoke(
+        app,
+        ["risk", "--inventory", str(inventory), "--receipts", str(tmp_path / "receipts.jsonl"),
+         "--public-key", str(export_public(key, tmp_path / "pub")), "--json"],
+    )  # fmt: skip
+    [r] = json.loads(out.stdout)
+    assert r["factors"]["anomaly"]["value"] == 1.0
+    assert r["factors"]["anomaly"]["evidence"]["kills"] == [2]
 
 
 def test_the_text_report_shows_every_factor(tmp_path):
