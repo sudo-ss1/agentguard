@@ -26,7 +26,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from agentguard.gateway.checks import CallContext
-from agentguard.gateway.receipts import args_digest
+from agentguard.gateway.receipt_fields import args_digest
 from agentguard.guards import NO_OBJECTION, GuardResult
 from agentguard.guards.state import GuardState
 

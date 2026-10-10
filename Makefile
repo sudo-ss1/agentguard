@@ -1,4 +1,4 @@
-.PHONY: up down test attack attack-docker attack-llm bench lint lock hooks
+.PHONY: up down test attack attack-docker attack-llm bench lint lock hooks dashboard-docker
 
 TRIALS ?= 5
 
@@ -56,3 +56,19 @@ lock:          ## refresh the pinned requirements used by the Docker image
 
 hooks:         ## install the pre-commit hook (lint + unit tests must pass to commit)
 	git config core.hooksPath .githooks
+
+DASH_DIR := run-logs/dashboard-docker/$(shell date +%Y%m%d-%H%M%S)
+
+dashboard-docker: ## view-only dashboard on 127.0.0.1, from a read-only snapshot of the Docker lab
+	@# `docker compose cp` only reads from the gateway container; the lab is never written.
+	@# The snapshot's public key comes from the same lab: pin one out of band for a real audit.
+	mkdir -p $(DASH_DIR)
+	docker compose cp gateway:/ledger/receipts.jsonl $(DASH_DIR)/receipts.jsonl
+	docker compose cp gateway:/ledger-roots/checkpoints.jsonl $(DASH_DIR)/checkpoints.jsonl
+	docker compose cp gateway:/ledger-roots/ledger-key.pub.json $(DASH_DIR)/ledger-key.pub.json
+	docker compose cp gateway:/gateway-pins/pins.json $(DASH_DIR)/pins.json
+	uv run agentguard scan --agents config/inventory.yaml --out $(DASH_DIR)/inventory.json \
+		|| [ $$? -le 3 ]  # 1 = credentials found, 3 = something not scanned: still an inventory
+	uv run --extra dashboard agentguard dashboard --receipts $(DASH_DIR)/receipts.jsonl \
+		--public-key $(DASH_DIR)/ledger-key.pub.json --checkpoints $(DASH_DIR)/checkpoints.jsonl \
+		--pins $(DASH_DIR)/pins.json --inventory $(DASH_DIR)/inventory.json

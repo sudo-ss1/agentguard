@@ -251,6 +251,41 @@ Code: `gateway/control.py`; the kill list's writers are in `guards/state.py`.
   (`agentguard.ops`) so there is a single path. The approver recorded is the OS user, not a
   free-text field.
 
+### Implementation notes (dashboard)
+
+`agentguard dashboard [--receipts --public-key --checkpoints --pins --inventory --state-dir]`
+(`uv sync --extra dashboard`); `make dashboard-docker` for the Docker lab.
+
+- **Streamlit 1.64.0**, the newest release at least two weeks old on 2026-10-10, under the
+  `dashboard` extra (and the dev dependencies, so its tests always run). The Docker image
+  doesn't include it.
+- **Server options.** The launcher sets `server.address=127.0.0.1`,
+  `browser.gatherUsageStats=false`, `server.enableXsrfProtection=true` and
+  `client.toolbarMode=viewer` (which hides Streamlit's "Deploy" button). The page checks all
+  four itself and refuses to render under anything else. Checked 2026-10-10: it listened on
+  127.0.0.1:8501 only, and the machine's own address got no answer.
+- **What it shows** (`dashboard/data.py`): exactly what receipts show. Call rows carry rule
+  ids, decisions, summaries, the coarse attributes on the clear list, and "committed (…)" for
+  the rest; a raw value in an old Phase 4 receipt shows as "hidden". Pending approvals show
+  the tool, agent, coarse attributes and the argument hash, never the arguments
+  (`agentguard approvals list` shows those). The kill list shows categories, never reasons.
+  Pins show servers, tools and quarantines, never hashes. Credentials show as the scanner
+  reports them.
+- **Read-only.** `data` never imports the ledger writer, the gateway or `gateway.receipts`;
+  the pure receipt helpers moved to `gateway/receipt_fields.py` for that. A test makes the
+  ledger, checkpoints, public key and pins read-only, runs every view and every action, and
+  checks no file was opened for writing and none changed.
+- **Actions** call `agentguard.ops`, which the CLI now calls too: kill and revive as
+  `dashboard:<user>` (the CLI is `cli:<user>`), approve and deny as `<user>`. The CLI's
+  `--approver` option is gone: approvals are recorded as the OS user on both paths.
+- **Docker is view-only.** Pending approvals and the kill list live on the gateway-only
+  volume, and the dashboard runs on the host. `make dashboard-docker` copies the ledger,
+  checkpoints, public key and pins out of the gateway container with `docker compose cp`
+  (reading only) into `run-logs/dashboard-docker/<time>/`, scans an inventory, and serves
+  those. The kill list then comes from the last kill-list control receipt, and each action is
+  shown as its `docker compose exec gateway agentguard …` command. The public key comes from
+  the same lab, so this is a view, not an independent audit: pin a key out of band for that.
+
 ## Attack 8
 
 - At test time, a temporary git repo is created with a committed file holding a **canary**

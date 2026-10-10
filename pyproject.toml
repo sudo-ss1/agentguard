@@ -38,6 +38,9 @@ models = ["onnx>=1.16"]
 # Only for the scanner evaluation (`agentguard eval`): reading deepset's Parquet files, and
 # splitting results by language.
 eval = ["pyarrow>=15", "langdetect>=1.0.9"]
+# Only for the dashboard (`agentguard dashboard`), never the gateway. Pinned: 1.64.0 was the newest
+# release at least two weeks old on 2026-10-10.
+dashboard = ["streamlit==1.64.0"]
 
 [project.scripts]
 agentguard = "agentguard.cli:app"
@@ -49,6 +52,7 @@ dev-dependencies = [
     "ruff>=0.6",
     "mypy>=1.11",
     "types-PyYAML",
+    "streamlit==1.64.0",  # so the dashboard tests always run, never skip
 ]
 
 [build-system]

@@ -301,31 +301,26 @@ StateDirOpt = Annotated[
 ]
 
 
-def _operator() -> str:
-    """Who is running the CLI, as recorded in control receipts: the OS user."""
-    import getpass
-
-    return f"cli:{getpass.getuser()}"
-
-
-def _guard_state(state_dir: Path | None):
-    from agentguard.guards.state import GuardState
-
-    return GuardState(state_dir or get_settings().guard_state_dir)
+def _state_dir(state_dir: Path | None) -> Path:
+    return state_dir or get_settings().guard_state_dir
 
 
 @app.command()
 def kill(
     agent: Annotated[str | None, typer.Option(help="Agent name to stop.")] = None,
     did: Annotated[str | None, typer.Option(help="Agent DID to stop.")] = None,
-    reason: Annotated[str, typer.Option(help="Why (recorded in receipts).")] = "manual kill",
+    reason: Annotated[
+        str, typer.Option(help="Why (committed in receipts; the category 'manual' is shown).")
+    ] = "manual kill",
     state_dir: StateDirOpt = None,
 ) -> None:
     """Stop an agent now, even though its token is still valid. Also revokes tokens it was
     seen presenting, and so everything delegated from them."""
+    from agentguard import ops
+
     if (agent is None) == (did is None):
         raise typer.BadParameter("pass exactly one of --agent or --did")
-    affected = _guard_state(state_dir).kill(reason, did=did, name=agent, by=_operator())
+    affected = ops.kill(_state_dir(state_dir), ops.operator("cli"), reason, agent=agent, did=did)
     typer.echo(f"killed {agent or did} ({len(affected)} DID(s) with recorded tokens)")
 
 
@@ -336,29 +331,29 @@ def revive(
     state_dir: StateDirOpt = None,
 ) -> None:
     """Lift a kill."""
+    from agentguard import ops
+
     if (agent is None) == (did is None):
         raise typer.BadParameter("pass exactly one of --agent or --did")
-    _guard_state(state_dir).revive(did=did, name=agent, by=_operator())
+    ops.revive(_state_dir(state_dir), ops.operator("cli"), agent=agent, did=did)
     typer.echo(f"revived {agent or did}")
 
 
 @guards_app.command("reset")
 def guards_reset(state_dir: StateDirOpt = None) -> None:
     """Revive every agent and clear budgets and taint in the running gateway."""
-    _guard_state(state_dir).reset(by=_operator())
+    from agentguard import ops
+
+    ops.reset(_state_dir(state_dir), ops.operator("cli"))
     typer.echo("guard state reset")
-
-
-def _approvals_dir(state_dir: Path | None) -> Path:
-    return (state_dir or get_settings().guard_state_dir) / "approvals"
 
 
 @approvals_app.command("list")
 def approvals_list(state_dir: StateDirOpt = None) -> None:
     """Show pending requests, with the full arguments the approver is deciding on."""
-    from agentguard.guards.approvals import list_pending
+    from agentguard import ops
 
-    pending = list_pending(_approvals_dir(state_dir))
+    pending = ops.pending(_state_dir(state_dir))
     if not pending:
         typer.echo("no pending approvals")
     for r in pending:
@@ -366,33 +361,26 @@ def approvals_list(state_dir: StateDirOpt = None) -> None:
         typer.echo(f"    arguments: {json.dumps(r['arguments'])[:500]}")
 
 
-def _decide(request_id: str, approve: bool, approver: str, state_dir: Path | None) -> None:
-    from agentguard.guards.approvals import decide
+def _decide(request_id: str, approve: bool, state_dir: Path | None) -> None:
+    from agentguard import ops
 
-    if not decide(_approvals_dir(state_dir), request_id, approve, approver):
+    approver = ops.os_user()  # recorded in the call's receipt; never a free-text field
+    if not ops.decide(_state_dir(state_dir), request_id, approve, approver):
         typer.echo(f"no pending request {request_id} (already answered, timed out or voided)")
         raise typer.Exit(1)
     typer.echo(f"{'approved' if approve else 'denied'} {request_id} as {approver}")
 
 
 @approvals_app.command("approve")
-def approvals_approve(
-    request_id: str,
-    approver: Annotated[str, typer.Option(help="Who is approving (recorded in the receipt).")],
-    state_dir: StateDirOpt = None,
-) -> None:
-    """Approve one pending call (exactly that call, once)."""
-    _decide(request_id, True, approver, state_dir)
+def approvals_approve(request_id: str, state_dir: StateDirOpt = None) -> None:
+    """Approve one pending call (exactly that call, once), as the OS user."""
+    _decide(request_id, True, state_dir)
 
 
 @approvals_app.command("deny")
-def approvals_deny(
-    request_id: str,
-    approver: Annotated[str, typer.Option(help="Who is denying (recorded in the receipt).")],
-    state_dir: StateDirOpt = None,
-) -> None:
-    """Deny one pending call."""
-    _decide(request_id, False, approver, state_dir)
+def approvals_deny(request_id: str, state_dir: StateDirOpt = None) -> None:
+    """Deny one pending call, as the OS user."""
+    _decide(request_id, False, state_dir)
 
 
 @eval_app.command("fetch")
@@ -764,3 +752,57 @@ def risk(
         typer.echo(json.dumps([r.as_dict(config) for r in results], indent=2))
     else:
         typer.echo(text_report(results, config))
+
+
+# --- dashboard (Phase 6) ------------------------------------------------------------------------
+
+# The only server options the page accepts (dashboard/app.py checks them again).
+DASHBOARD_OPTIONS = [
+    "--server.address=127.0.0.1",
+    "--browser.gatherUsageStats=false",
+    "--server.enableXsrfProtection=true",
+    "--client.toolbarMode=viewer",
+    "--server.headless=true",
+    "--server.fileWatcherType=none",
+    "--global.developmentMode=false",
+]
+
+
+@app.command()
+def dashboard(
+    receipts: Annotated[Path | None, typer.Option(help="The ledger (receipts.jsonl).")] = None,
+    public_key: Annotated[
+        str | None, typer.Option(help="The ledger's pinned public key (did:key or file).")
+    ] = None,
+    checkpoints: Annotated[Path | None, typer.Option(help="The ledger's checkpoints.")] = None,
+    pins: Annotated[Path | None, typer.Option(help="The gateway's pins.json.")] = None,
+    inventory: Annotated[Path | None, typer.Option(help="From `agentguard scan`.")] = None,
+    gateway_config: Annotated[Path | None, typer.Option(help="For approval rules.")] = Path(
+        "config/gateway.yaml"
+    ),
+    policy_dir: Annotated[Path | None, typer.Option(help="Cedar policies.")] = Path(
+        "config/policies"
+    ),
+    state_dir: Annotated[
+        Path | None,
+        typer.Option(help="The gateway's guard-state folder. Without it: view-only."),
+    ] = None,
+    port: Annotated[int, typer.Option(help="Port on 127.0.0.1.")] = 8501,
+    dry_run: Annotated[bool, typer.Option(help="Print the command instead of running it.")] = False,
+) -> None:
+    """Serve the dashboard on 127.0.0.1 only (needs `uv sync --extra dashboard`). It reads the
+    ledger, pins and inventory read-only; its actions are the CLI's, as the OS user."""
+    import os
+
+    from agentguard.dashboard.data import ENV, Sources
+
+    src = Sources(receipts, public_key, checkpoints, pins, inventory, gateway_config,
+                  policy_dir, state_dir)  # fmt: skip
+    page = Path(__file__).parent / "dashboard" / "app.py"
+    command = [sys.executable, "-m", "streamlit", "run", str(page), f"--server.port={port}"]
+    command += DASHBOARD_OPTIONS
+    if dry_run:
+        typer.echo(" ".join(command))
+        typer.echo(f"{ENV}={src.to_env()}")
+        return
+    os.execvpe(command[0], command, {**os.environ, ENV: src.to_env()})
