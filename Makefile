@@ -26,6 +26,9 @@ SCENARIOS ?= $(shell uv run --quiet python -c "from agentguard.attacks import lo
 	from agentguard import CURRENT_PHASE as p; print(*[s.id for s in load_all() if s.available_from_phase <= p])")
 
 attack-docker: ## scripted attacks in the Docker lab (guarded), one scenario at a time
+	@# The harness image is rebuilt first (cached, so quick): an image built from older code
+	@# runs older scenarios and harness code, and can pass for current.
+	docker compose --profile agent build agent
 	@# Guard state (taint, budgets, kill list) is on the gateway-only volume, so it is reset
 	@# from the host before each scenario; the agent container has no way to reset it.
 	@for n in $(SCENARIOS); do \
@@ -35,6 +38,7 @@ attack-docker: ## scripted attacks in the Docker lab (guarded), one scenario at 
 	done
 
 attack-llm:    ## scripted + LLM attacks inside the Docker lab (AGENTGUARD_MODE picks the stack)
+	docker compose --profile agent build agent
 	docker compose exec gateway agentguard guards reset   # revive agents, clear budgets/taint
 	docker compose run --rm agent agentguard attack --llm --trials $(TRIALS) --expect-phase $(PHASE)
 
